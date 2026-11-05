@@ -44,6 +44,25 @@ flutter run            # Gerät/Emulator wählen
 flutter run -d chrome  # Browser
 ```
 
+### Lokal im Browser starten
+
+Mit installiertem Chrome/Chromium öffnet `flutter run -d chrome` die App direkt.
+Ohne Chrome (z. B. nur Firefox) startet ein lokaler Webserver:
+
+```bash
+flutter run -d web-server --web-port 8080 --web-hostname localhost
+```
+
+Danach im Browser **http://localhost:8080** öffnen, sobald
+„lib/main.dart is being served at …“ erscheint. Im Terminal lädt `r` die App
+nach Codeänderungen neu, `R` startet sie neu, `q` beendet den Server
+(anschließend im Browser die Seite neu laden).
+
+Hinweise:
+- Die Daten liegen im `localStorage` des Browsers, getrennt von der
+  Android-/iOS-App (Übertragung per Export/Import).
+- Die Benachrichtigung mit Start/Pause gibt es im Browser nicht.
+
 ## Pakete bauen
 
 Die Skripte in `scripts/` werden sowohl lokal als auch von GitHub Actions verwendet. Ergebnisse landen in `dist/`.
