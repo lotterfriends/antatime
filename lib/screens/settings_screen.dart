@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../format.dart';
+import '../models.dart';
 import '../notification_service.dart';
+import '../widgets/backup_tiles.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -134,6 +136,37 @@ class SettingsScreen extends StatelessWidget {
               style: theme.textTheme.bodySmall,
             ),
           ),
+          ListTile(
+            leading: const Icon(Icons.more_time),
+            title: const Text('Faktor für Arbeit an Abwesenheitstagen'),
+            subtitle: const Text(
+                'An Feiertagen, im Urlaub und bei anderer Abwesenheit, '
+                'z. B. 1,5 oder 2'),
+            trailing: Text('× ${formatFactor(s.absenceWorkFactor)}',
+                style: theme.textTheme.titleMedium),
+            onTap: () async {
+              final v = await _askFactor(context, s.absenceWorkFactor);
+              if (v != null) {
+                await state.updateSettings((x) => x.absenceWorkFactor = v);
+              }
+            },
+          ),
+          _Section('Feiertage'),
+          ListTile(
+            leading: const Icon(Icons.celebration_outlined),
+            title: const Text('Bundesland'),
+            subtitle: const Text(
+                'Gesetzliche Feiertage zählen automatisch als Abwesenheit'),
+            trailing: Text(s.federalState?.label ?? 'Keins',
+                style: theme.textTheme.titleMedium),
+            onTap: () async {
+              final v = await _pickFederalState(context, s.federalState);
+              if (v != null) {
+                await state.updateSettings(
+                    (x) => x.federalState = v.state);
+              }
+            },
+          ),
           if (NotificationService.instance.supported) ...[
             _Section('Benachrichtigung'),
             SwitchListTile(
@@ -146,6 +179,8 @@ class SettingsScreen extends StatelessWidget {
                   state.updateSettings((x) => x.showNotification = v),
             ),
           ],
+          _Section('Daten'),
+          const BackupTiles(),
           const SizedBox(height: 24),
         ],
       ),
@@ -166,6 +201,95 @@ class _Section extends StatelessWidget {
                 .titleSmall
                 ?.copyWith(color: Theme.of(context).colorScheme.primary)),
       );
+}
+
+/// Fragt den Faktor für Arbeit an Abwesenheitstagen ab.
+Future<double?> _askFactor(BuildContext context, double initial) {
+  final controller = TextEditingController(text: formatFactor(initial));
+  String? error;
+  return showDialog<double>(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, setState) {
+        void submit() {
+          final v = parseFactor(controller.text);
+          if (v == null) {
+            setState(() => error = 'Zahl zwischen 0 und 10, z. B. 1,5');
+            return;
+          }
+          Navigator.pop(c, v);
+        }
+
+        return AlertDialog(
+          title: const Text('Faktor'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                  'Wird an einem Feiertag, im Urlaub oder bei anderer '
+                  'Abwesenheit gearbeitet, zählt jede Stunde so oft ins '
+                  'Stundenkonto. 2 = doppelt, 1 = einfach.'),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                  hintText: 'z. B. 1,5',
+                  prefixText: '× ',
+                  errorText: error,
+                ),
+                onSubmitted: (_) => submit(),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: const Text('Abbrechen')),
+            FilledButton(onPressed: submit, child: const Text('OK')),
+          ],
+        );
+      },
+    ),
+  );
+}
+
+/// Ergebnis der Bundesland-Auswahl (`state == null` = keine Feiertage).
+class _FederalStateChoice {
+  const _FederalStateChoice(this.state);
+  final FederalState? state;
+}
+
+Future<_FederalStateChoice?> _pickFederalState(
+    BuildContext context, FederalState? current) {
+  return showDialog<_FederalStateChoice>(
+    context: context,
+    builder: (c) => SimpleDialog(
+      title: const Text('Bundesland'),
+      children: [
+        RadioGroup<FederalState?>(
+          groupValue: current,
+          onChanged: (v) => Navigator.pop(c, _FederalStateChoice(v)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const RadioListTile<FederalState?>(
+                value: null,
+                title: Text('Keins (keine Feiertage)'),
+              ),
+              for (final fs in FederalState.values)
+                RadioListTile<FederalState?>(
+                  value: fs,
+                  title: Text(fs.label),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// Fragt einen Stundenwert ab (Format „8“, „7:30“, „7,5“). Ergebnis in Minuten.

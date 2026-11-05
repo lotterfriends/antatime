@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
@@ -32,15 +33,26 @@ Future<void> notificationActionBackground(NotificationResponse response) async {
 
 /// Steuerung der Arbeitszeit über den Benachrichtigungsbereich
 /// (Android & iOS; im Browser nicht verfügbar).
+///
+/// Android: eigene, native Benachrichtigung (TrackingNotification.kt) mit
+/// animiertem Statusleisten-Symbol, Live-Uhren und Symbol-Aktionen.
+/// iOS: flutter_local_notifications mit Start/Pause-Aktion.
 class NotificationService {
   NotificationService._();
   static final instance = NotificationService._();
 
   final _plugin = FlutterLocalNotificationsPlugin();
+  static const _native = MethodChannel('antatime/notification');
   bool _initialized = false;
 
-  /// Wird aufgerufen, wenn die Aktion im Vordergrund ausgelöst wird.
+  /// Wird aufgerufen, wenn die Aktion im Vordergrund ausgelöst wird (iOS).
   VoidCallback? onToggle;
+
+  /// Wird aufgerufen, wenn die native Benachrichtigung die Daten geändert
+  /// hat (Android).
+  VoidCallback? onDataChanged;
+
+  bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
   bool get supported =>
       !kIsWeb &&
@@ -49,6 +61,11 @@ class NotificationService {
 
   Future<void> init() async {
     if (!supported || _initialized) return;
+    if (_isAndroid) {
+      _native.setMethodCallHandler((call) async {
+        if (call.method == 'dataChanged') onDataChanged?.call();
+      });
+    }
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     final darwin = DarwinInitializationSettings(
       requestAlertPermission: false,
@@ -87,12 +104,21 @@ class NotificationService {
 
   Future<void> cancel() async {
     if (!supported || !_initialized) return;
-    await _plugin.cancel(id: _notificationId);
+    if (_isAndroid) {
+      await _native.invokeMethod<void>('cancel');
+    } else {
+      await _plugin.cancel(id: _notificationId);
+    }
   }
 
   /// Zeigt/aktualisiert die Steuer-Benachrichtigung passend zum Zustand.
   Future<void> update(AppData data) async {
     if (!supported || !_initialized) return;
+    if (_isAndroid) {
+      // Die native Seite liest den Zustand selbst aus den gespeicherten Daten.
+      await _native.invokeMethod<void>('refresh');
+      return;
+    }
     if (!data.settings.showNotification) {
       await cancel();
       return;

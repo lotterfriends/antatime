@@ -1,5 +1,9 @@
 import 'dart:math';
 
+import 'holidays.dart';
+
+export 'holidays.dart' show FederalState;
+
 /// Normalisiert einen Zeitpunkt auf den Tagesbeginn (lokale Zeit).
 DateTime dayOf(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
 
@@ -49,10 +53,17 @@ class WorkSession {
 enum AbsenceType {
   sick('Krank'),
   vacation('Urlaub'),
-  other('Andere Abwesenheit');
+  other('Andere Abwesenheit'),
+
+  /// Gesetzlicher Feiertag – wird automatisch aus dem Bundesland berechnet
+  /// und nicht gespeichert.
+  holiday('Feiertag');
 
   const AbsenceType(this.label);
   final String label;
+
+  /// Typen, die man selbst eintragen kann.
+  static const editable = [sick, vacation, other];
 }
 
 /// Abwesenheit über einen oder mehrere Tage (inklusive [from] und [to]).
@@ -71,6 +82,11 @@ class Absence {
   DateTime from;
   DateTime to;
   String? note;
+
+  bool get isHoliday => type == AbsenceType.holiday;
+
+  /// Anzeigename: bei Feiertagen der Name des Feiertags.
+  String get label => isHoliday ? (note ?? type.label) : type.label;
 
   bool covers(DateTime day) {
     final d = dayOf(day);
@@ -103,6 +119,8 @@ class Settings {
     Set<int>? workdays,
     DateTime? startDate,
     this.showNotification = true,
+    this.federalState,
+    this.absenceWorkFactor = 1,
   })  : workdays = workdays ?? {1, 2, 3, 4, 5},
         startDate = dayOf(startDate ?? DateTime.now());
 
@@ -123,6 +141,13 @@ class Settings {
   /// Start/Pause-Steuerung im Benachrichtigungsbereich anzeigen.
   bool showNotification;
 
+  /// Bundesland für die automatischen Feiertage (`null` = keine Feiertage).
+  FederalState? federalState;
+
+  /// Faktor für Arbeit an Feiertagen, im Urlaub und bei anderer
+  /// Abwesenheit (z. B. 1,5 oder 2). 1 = jede Stunde zählt einfach.
+  double absenceWorkFactor;
+
   int get dailyTargetMinutes => (dailyHours * 60).round();
 
   Map<String, dynamic> toJson() => {
@@ -132,6 +157,8 @@ class Settings {
         'workdays': workdays.toList()..sort(),
         'startDate': dayKey(startDate),
         'showNotification': showNotification,
+        if (federalState != null) 'federalState': federalState!.name,
+        'absenceWorkFactor': absenceWorkFactor,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
@@ -145,6 +172,9 @@ class Settings {
             ? null
             : DateTime.parse(j['startDate'] as String),
         showNotification: j['showNotification'] as bool? ?? true,
+        federalState: FederalState.byName(j['federalState'] as String?),
+        absenceWorkFactor:
+            (j['absenceWorkFactor'] as num?)?.toDouble() ?? 1,
       );
 }
 

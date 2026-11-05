@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../format.dart';
+import 'absences_screen.dart';
 import '../widgets/day_timeline.dart';
 import '../widgets/session_editor.dart';
 
@@ -42,8 +43,8 @@ class TodayScreen extends StatelessWidget {
               margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               color: theme.colorScheme.tertiaryContainer,
               child: ListTile(
-                leading: const Icon(Icons.event_busy),
-                title: Text('Heute: ${today.absence!.type.label}'),
+                leading: Icon(absenceIcon(today.absence!.type)),
+                title: Text('Heute: ${today.absence!.label}'),
                 subtitle: today.isWorkday
                     ? Text('Zählt als ${formatDuration(today.target)} h Arbeitszeit')
                     : null,

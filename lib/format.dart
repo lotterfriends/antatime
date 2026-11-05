@@ -59,3 +59,13 @@ String formatHoursNumber(double h) {
   final s = h.toStringAsFixed(2);
   return s.replaceFirst(RegExp(r'\.?0+$'), '').replaceAll('.', ',');
 }
+
+/// Faktor wie „1,5“ oder „2“.
+String formatFactor(double f) => formatHoursNumber(f);
+
+/// Liest einen Faktor wie „1,5“, „1.5“ oder „2“ (größer als 0, höchstens 10).
+double? parseFactor(String input) {
+  final v = double.tryParse(input.trim().replaceAll(',', '.'));
+  if (v == null || v <= 0 || v > 10) return null;
+  return v;
+}

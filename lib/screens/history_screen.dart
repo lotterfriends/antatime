@@ -128,7 +128,7 @@ class _DayRow extends StatelessWidget {
 
     String subtitle;
     if (s.absence != null) {
-      subtitle = s.absence!.type.label;
+      subtitle = s.absence!.label;
       if (s.worked > Duration.zero) {
         subtitle += ' · ${formatDuration(s.worked)} h gearbeitet';
       }

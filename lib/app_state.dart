@@ -12,6 +12,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     NotificationService.instance.onToggle = toggle;
+    NotificationService.instance.onDataChanged = reload;
   }
 
   final Repository _repo;
@@ -56,6 +57,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     final started = Repository.toggle(data, DateTime.now());
     now = DateTime.now();
     await _repo.saveSessions(data.sessions);
+    if (started) await _repo.clearStopped();
     notifyListeners();
     if (started) await NotificationService.instance.requestPermission();
     await _syncNotification();
@@ -105,6 +107,19 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     if (data.settings.showNotification) {
       await NotificationService.instance.requestPermission();
     }
+    await _syncNotification();
+  }
+
+  /// Alle Daten und Einstellungen als JSON-Text.
+  String exportJson() => Repository.exportJson(data);
+
+  /// Ersetzt alle Daten und Einstellungen durch [imported].
+  Future<void> importData(AppData imported) async {
+    await _repo.saveAll(imported);
+    if (imported.running != null) await _repo.clearStopped();
+    data = imported;
+    now = DateTime.now();
+    notifyListeners();
     await _syncNotification();
   }
 

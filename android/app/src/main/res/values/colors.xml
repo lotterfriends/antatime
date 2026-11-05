@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Akzentfarbe der App (Seed-Farbe in lib/main.dart) -->
+    <color name="ic_launcher_background">#00796B</color>
+    <color name="notification_accent">#00796B</color>
+    <color name="notification_icon">#DE000000</color>
+</resources>

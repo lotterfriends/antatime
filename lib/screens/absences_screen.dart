@@ -9,6 +9,7 @@ IconData absenceIcon(AbsenceType t) => switch (t) {
       AbsenceType.sick => Icons.sick_outlined,
       AbsenceType.vacation => Icons.beach_access_outlined,
       AbsenceType.other => Icons.event_busy_outlined,
+      AbsenceType.holiday => Icons.celebration_outlined,
     };
 
 class AbsencesScreen extends StatelessWidget {
@@ -17,16 +18,27 @@ class AbsencesScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final absences = [...state.data.absences]
-      ..sort((a, b) => b.from.compareTo(a.from));
+    final calc = state.calc;
+    final year = state.now.year;
+    // Feiertage des laufenden und des nächsten Jahres automatisch anzeigen.
+    final absences = [
+      ...state.data.absences,
+      ...calc.holidaysIn(year),
+      ...calc.holidaysIn(year + 1),
+    ]..sort((a, b) => b.from.compareTo(a.from));
     final workdays = state.data.settings.workdays;
+    final federalState = state.data.settings.federalState;
 
+    // Arbeitstage ohne Feiertage (z. B. verbrauchte Urlaubstage).
     int countWorkdays(Absence a) {
       var n = 0;
       for (var d = a.from;
           !d.isAfter(a.to);
           d = DateTime(d.year, d.month, d.day + 1)) {
-        if (workdays.contains(d.weekday)) n++;
+        if (workdays.contains(d.weekday) &&
+            (a.isHoliday || calc.holidayFor(d) == null)) {
+          n++;
+        }
       }
       return n;
     }
@@ -45,7 +57,9 @@ class AbsencesScreen extends StatelessWidget {
                 child: Text(
                   'Noch keine Abwesenheiten.\n\nKrank, Urlaub oder andere '
                   'Abwesenheiten zählen an Arbeitstagen wie ein voll '
-                  'gearbeiteter Tag.',
+                  'gearbeiteter Tag.\n\nFeiertage werden automatisch '
+                  'eingetragen, wenn in den Einstellungen ein Bundesland '
+                  'gewählt ist.',
                   textAlign: TextAlign.center,
                 ),
               ),
@@ -59,9 +73,19 @@ class AbsencesScreen extends StatelessWidget {
                     ? formatDate(a.from)
                     : '${formatDateShort(a.from)} – ${formatDateShort(a.to)}';
                 final n = countWorkdays(a);
+                if (a.isHoliday) {
+                  return ListTile(
+                    leading: Icon(absenceIcon(a.type),
+                        color: Theme.of(context).colorScheme.primary),
+                    title: Text(a.label),
+                    subtitle: Text(
+                        '$range · Feiertag ${federalState?.label ?? ''}'
+                        '${n == 0 ? ' · kein Arbeitstag' : ''}'),
+                  );
+                }
                 return ListTile(
                   leading: Icon(absenceIcon(a.type)),
-                  title: Text(a.type.label),
+                  title: Text(a.label),
                   subtitle: Text(
                       '$range · $n Arbeitstag${n == 1 ? '' : 'e'}${a.note != null ? '\n${a.note}' : ''}'),
                   isThreeLine: a.note != null,
@@ -160,7 +184,7 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final t in AbsenceType.values)
+                for (final t in AbsenceType.editable)
                   ChoiceChip(
                     avatar: Icon(absenceIcon(t), size: 18),
                     label: Text(t.label),

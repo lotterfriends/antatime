@@ -47,10 +47,13 @@ class DayScreen extends StatelessWidget {
               child: Column(
                 children: [
                   row('Gearbeitet', formatDuration(stats.worked)),
+                  if (stats.bonus != Duration.zero)
+                    row('Zuschlag (× ${formatFactor(stats.workFactor)})',
+                        formatDuration(stats.bonus)),
                   row('Pausen', formatDuration(stats.breaks)),
                   row('Soll', formatDuration(stats.target)),
                   if (stats.credited > Duration.zero)
-                    row('Gutschrift (${stats.absence!.type.label})',
+                    row('Gutschrift (${stats.absence!.label})',
                         formatDuration(stats.credited)),
                   const Divider(),
                   row('Differenz', formatSigned(stats.diff),
@@ -63,11 +66,14 @@ class DayScreen extends StatelessWidget {
           ),
           if (stats.absence != null)
             ListTile(
-              leading: const Icon(Icons.event_busy),
-              title: Text(stats.absence!.type.label),
-              subtitle: Text(
-                  '${formatDateShort(stats.absence!.from)} – ${formatDateShort(stats.absence!.to)}'),
-              onTap: () => showAbsenceEditor(context, absence: stats.absence),
+              leading: Icon(absenceIcon(stats.absence!.type)),
+              title: Text(stats.absence!.label),
+              subtitle: Text(stats.absence!.isHoliday
+                  ? 'Gesetzlicher Feiertag'
+                  : '${formatDateShort(stats.absence!.from)} – ${formatDateShort(stats.absence!.to)}'),
+              onTap: stats.absence!.isHoliday
+                  ? null
+                  : () => showAbsenceEditor(context, absence: stats.absence),
             )
           else
             ListTile(

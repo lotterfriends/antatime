@@ -1,3 +1,4 @@
+import 'holidays.dart';
 import 'models.dart';
 
 class DayStats {
@@ -7,6 +8,7 @@ class DayStats {
     required this.worked,
     required this.target,
     required this.absence,
+    this.absenceWorkFactor = 1,
   });
 
   final DateTime day;
@@ -19,6 +21,21 @@ class DayStats {
   /// Abwesenheit an diesem Tag (Krank/Urlaub/…), falls vorhanden.
   final Absence? absence;
 
+  /// Faktor für Arbeit an Abwesenheitstagen (Einstellung).
+  final double absenceWorkFactor;
+
+  /// Faktor, mit dem die Arbeitszeit dieses Tages ins Konto eingeht:
+  /// an Feiertagen, im Urlaub und bei anderer Abwesenheit der eingestellte
+  /// Faktor, sonst (auch bei Krankheit) 1.
+  double get workFactor =>
+      absence != null && absence!.type != AbsenceType.sick
+          ? absenceWorkFactor
+          : 1;
+
+  /// Zusätzlich gutgeschriebene Zeit durch den Faktor (0 bei Faktor 1).
+  Duration get bonus => Duration(
+      microseconds: (worked.inMicroseconds * (workFactor - 1)).round());
+
   bool get isWorkday => target > Duration.zero;
 
   /// Gutgeschriebene Zeit durch Abwesenheit: Abwesenheit an einem Arbeitstag
@@ -27,7 +44,9 @@ class DayStats {
       absence != null && isWorkday ? target : Duration.zero;
 
   /// Differenz zum Soll: positiv = Überstunden, negativ = Minusstunden.
-  Duration get diff => worked + credited - target;
+  /// Arbeit an Abwesenheitstagen zählt voll (mal Faktor) als Überstunden,
+  /// da das Soll bereits durch die Gutschrift erfüllt ist.
+  Duration get diff => worked + bonus + credited - target;
 
   /// Pausen = Lücken zwischen zwei Arbeitszeiten am selben Tag.
   Duration get breaks {
@@ -56,6 +75,7 @@ class BalanceCalculator {
   final AppData data;
   final DateTime now;
   final Map<String, List<WorkSession>> _byDay = {};
+  final Map<int, Map<String, Absence>> _holidaysByYear = {};
 
   Settings get settings => data.settings;
 
@@ -63,7 +83,32 @@ class BalanceCalculator {
       ? Duration(minutes: settings.dailyTargetMinutes)
       : Duration.zero;
 
+  /// Gesetzliche Feiertage des Jahres im gewählten Bundesland als
+  /// (nicht gespeicherte) Abwesenheiten.
+  List<Absence> holidaysIn(int year) =>
+      _holidayMap(year).values.toList(growable: false);
+
+  Map<String, Absence> _holidayMap(int year) {
+    final state = settings.federalState;
+    if (state == null) return const {};
+    return _holidaysByYear.putIfAbsent(year, () => {
+          for (final h in holidaysFor(state, year))
+            dayKey(h.date): Absence(
+              id: 'holiday-${dayKey(h.date)}',
+              type: AbsenceType.holiday,
+              from: h.date,
+              to: h.date,
+              note: h.name,
+            ),
+        });
+  }
+
+  Absence? holidayFor(DateTime day) => _holidayMap(day.year)[dayKey(day)];
+
+  /// Abwesenheit des Tages; ein Feiertag hat Vorrang (z. B. im Urlaub).
   Absence? absenceFor(DateTime day) {
+    final holiday = holidayFor(day);
+    if (holiday != null) return holiday;
     for (final a in data.absences) {
       if (a.covers(day)) return a;
     }
@@ -84,6 +129,7 @@ class BalanceCalculator {
       worked: worked,
       target: targetFor(d),
       absence: absenceFor(d),
+      absenceWorkFactor: settings.absenceWorkFactor,
     );
   }
 

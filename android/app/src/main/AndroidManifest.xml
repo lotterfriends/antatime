@@ -3,7 +3,8 @@
     <application
         android:label="AnTaTime"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -31,7 +32,9 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- Start/Pause-Aktionen aus der Benachrichtigung -->
+        <!-- Start/Pause/Feierabend aus der Benachrichtigung (Android, nativ) -->
+        <receiver android:exported="false" android:name=".NotificationActionReceiver" />
+        <!-- Aktionen von flutter_local_notifications (iOS-Pfad, Altbestand) -->
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
     </application>
     <!-- Required to query activities that can process text, see:
