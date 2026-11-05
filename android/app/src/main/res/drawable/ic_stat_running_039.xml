@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generiert von scripts/generate_icons.py -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.8"
+        android:pathData="M12,6.6a5.4,5.4 0,1 1,0 10.8a5.4,5.4 0,1 1,0 -10.8z"/>
+    <path
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,9.2V12L14,13.4"/>
+    <group
+        android:pivotX="12"
+        android:pivotY="12"
+        android:rotation="104">
+        <path
+            android:strokeColor="#FFFFFFFF"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round"
+            android:pathData="M12,2.6A9.4,9.4 0,1 1,2.6 12"/>
+        <path
+            android:fillColor="#FFFFFFFF"
+            android:pathData="M2.6,8.6L5.1,12.9L0.1,12.9Z"/>
+    </group>
+</vector>

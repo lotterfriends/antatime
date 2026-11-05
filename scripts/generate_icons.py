@@ -146,8 +146,10 @@ def web(glyph):
 
 # --- Statusleisten-Icons (Vector Drawables, weiß) ---------------------------
 
-FRAMES = 30          # 12° pro Bild
-FRAME_MS = 150       # eine Umdrehung = 4,5 s
+# Flüssige Drehung: ~30 Bilder/s, 2,67° pro Bild. 33 ms entsprechen genau
+# 2 Bildwechseln bei 60 Hz bzw. 4 bei 120 Hz, dadurch gleichmäßige Schritte.
+FRAMES = 135
+FRAME_MS = 33        # eine Umdrehung ≈ 4,5 s
 
 CLOCK = '''    <path
         android:strokeColor="#FFFFFFFF"
@@ -194,10 +196,10 @@ def status_icons():
             os.remove(os.path.join(d, name))
     items = []
     for i in range(FRAMES):
-        rot = i * 360 / FRAMES
-        with open(f'{d}/ic_stat_running_{i:02d}.xml', 'w') as f:
+        rot = round(i * 360 / FRAMES, 3)
+        with open(f'{d}/ic_stat_running_{i:03d}.xml', 'w') as f:
             f.write(vector(CLOCK + ARROW.format(rot=f'{rot:g}')))
-        items.append(f'    <item android:drawable="@drawable/ic_stat_running_{i:02d}" '
+        items.append(f'    <item android:drawable="@drawable/ic_stat_running_{i:03d}" '
                      f'android:duration="{FRAME_MS}"/>')
     with open(f'{d}/ic_stat_running.xml', 'w') as f:
         f.write('<?xml version="1.0" encoding="utf-8"?>\n'
