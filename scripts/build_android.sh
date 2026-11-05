@@ -22,11 +22,22 @@ storeFile=release.jks
 PROPS
   trap 'rm -f "$KEY_PROPS" "$KEYSTORE_FILE"' EXIT
 elif [[ ! -f "$KEY_PROPS" ]]; then
-  echo "Hinweis: Keine Release-Signatur konfiguriert – APK wird mit dem Debug-Key signiert."
+  MSG="Keine Release-Signatur konfiguriert – APK wird mit dem Debug-Key signiert. Updates über eine bestehende Installation schlagen fehl, wenn der Debug-Key wechselt (in CI bei jedem Lauf)."
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    echo "::warning title=Android-Signatur fehlt::$MSG Repository-Secrets ANDROID_* anlegen (siehe README)."
+  else
+    echo "Hinweis: $MSG"
+  fi
+fi
+
+# In CI fortlaufende Build-Nummer (versionCode), damit jede APK neuer ist.
+BUILD_ARGS=()
+if [[ -n "${GITHUB_RUN_NUMBER:-}" && " $* " != *" --build-number"* ]]; then
+  BUILD_ARGS+=(--build-number="$GITHUB_RUN_NUMBER")
 fi
 
 flutter_prepare
-"$FLUTTER" build apk --release "$@"
+"$FLUTTER" build apk --release ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "$@"
 
 OUT="$DIST_DIR/antatime-$APP_VERSION.apk"
 cp build/app/outputs/flutter-apk/app-release.apk "$OUT"

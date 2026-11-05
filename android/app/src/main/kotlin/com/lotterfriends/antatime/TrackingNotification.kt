@@ -23,7 +23,13 @@ import java.time.Instant
  * - Aktionen als Symbole: Start/Pause und Feierabend (Stop)
  */
 object TrackingNotification {
-    private const val CHANNEL_ID = "tracking"
+    // Eigener Kanal mit Standard-Wichtigkeit (aber ohne Ton/Vibration): Nur so
+    // erscheint das Symbol in der Statusleiste. Kanäle mit niedriger
+    // Wichtigkeit landen unter „Lautlos“ und Android blendet deren Symbole
+    // standardmäßig aus. Die Wichtigkeit eines bestehenden Kanals lässt sich
+    // nicht ändern, daher eine neue ID; der alte Kanal wird entfernt.
+    private const val CHANNEL_ID = "tracking_status"
+    private const val OLD_CHANNEL_ID = "tracking"
     private const val NOTIFICATION_ID = 1
 
     fun refresh(context: Context) {
@@ -104,9 +110,8 @@ object TrackingNotification {
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_STOPWATCH)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
 
@@ -132,12 +137,18 @@ object TrackingNotification {
     private fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
+        if (manager.getNotificationChannel(OLD_CHANNEL_ID) != null) {
+            manager.deleteNotificationChannel(OLD_CHANNEL_ID)
+        }
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "Zeiterfassung", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(CHANNEL_ID, "Zeiterfassung", NotificationManager.IMPORTANCE_DEFAULT)
                 .apply {
                     description = "Start/Pause der Arbeitszeit"
                     setShowBadge(false)
+                    setSound(null, null)
+                    enableVibration(false)
+                    enableLights(false)
                 },
         )
     }

@@ -65,6 +65,14 @@ Optionen über Umgebungsvariablen:
 
 Keystore erzeugen und für das Secret kodieren:
 
+Ohne Java geht es auch mit OpenSSL (PKCS12, Alias `antatime`, Key-Passwort = Keystore-Passwort):
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 10950 -subj "/CN=AnTaTime"
+openssl pkcs12 -export -inkey key.pem -in cert.pem -name antatime -out release.keystore
+rm key.pem cert.pem
+```
+
 ```bash
 keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias antatime
 base64 -w0 release.jks   # Inhalt als Secret ANDROID_KEYSTORE_BASE64 hinterlegen
@@ -81,7 +89,7 @@ base64 -w0 release.jks   # Inhalt als Secret ANDROID_KEYSTORE_BASE64 hinterlegen
 5. **release** – bei Tags `v*` ein GitHub-Release mit allen Paketen (Android und Web müssen erfolgreich sein)
 6. **pages** (optional) – Web-App auf GitHub Pages: unter *Settings → Pages* die Quelle „GitHub Actions“ wählen und die Repository-Variable `DEPLOY_PAGES=true` setzen
 
-Für signierte Android-Releases die vier `ANDROID_*`-Werte als Repository-Secrets anlegen.
+Für signierte Android-Releases die vier `ANDROID_*`-Werte als Repository-Secrets anlegen. **Wichtig:** Ohne diese Secrets signiert jeder CI-Lauf mit einem neuen Debug-Key – eine bereits installierte App lässt sich dann nicht per Update überschreiben (nur deinstallieren und neu installieren, Daten vorher exportieren). Der `versionCode` wird in CI aus der Lauf-Nummer gesetzt.
 
 ## Plattform-Hinweise
 
