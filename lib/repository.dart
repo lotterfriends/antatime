@@ -109,6 +109,23 @@ class Repository {
     return true;
   }
 
+  /// Löscht die Pause zwischen [beforeId] und [afterId]: Der frühere
+  /// Abschnitt reicht danach bis zum Ende des späteren (läuft also weiter,
+  /// falls dieser noch läuft), der spätere wird entfernt. Notizen werden
+  /// zusammengeführt. Gibt `false` zurück, wenn einer fehlt.
+  static bool mergeSessions(AppData data, String beforeId, String afterId) {
+    final before = data.sessions.where((s) => s.id == beforeId).firstOrNull;
+    final after = data.sessions.where((s) => s.id == afterId).firstOrNull;
+    if (before == null || after == null || before == after) return false;
+    before.end = after.end;
+    final notes = [before.note, after.note]
+        .where((n) => n != null && n.trim().isNotEmpty)
+        .toList();
+    before.note = notes.isEmpty ? null : notes.join('\n');
+    data.sessions.remove(after);
+    return true;
+  }
+
   /// Alle Daten und Einstellungen als JSON-Text (Export).
   static String exportJson(AppData data, {DateTime? now}) =>
       const JsonEncoder.withIndent('  ').convert({

@@ -82,6 +82,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await _syncNotification();
   }
 
+  /// Pause zwischen zwei Arbeitszeiten löschen und beide zusammenfassen.
+  Future<void> deletePause(String beforeId, String afterId) async {
+    // Frisch laden, falls die Benachrichtigung den Zustand geändert hat.
+    data = await _repo.load();
+    if (!Repository.mergeSessions(data, beforeId, afterId)) return;
+    await _repo.saveSessions(data.sessions);
+    notifyListeners();
+    await _syncNotification();
+  }
+
   Future<void> upsertAbsence(Absence absence) async {
     final i = data.absences.indexWhere((a) => a.id == absence.id);
     if (i >= 0) {
