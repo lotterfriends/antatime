@@ -9,7 +9,9 @@ Voraussetzung: ImageMagick 7 (`magick`). Aufruf aus dem Projektverzeichnis:
     python3 scripts/generate_icons.py
 """
 
+import math
 import os
+import re
 import subprocess
 import tempfile
 
@@ -40,6 +42,127 @@ TIMER_PAUSE = ('M21 13.35C20.36 13.13 19.7 13 19 13C19 9.13 15.87 6 12 6S5 9.13 
                '16.5V21.5H21.5V16.5H19.63M16.5 21.5H18.38V16.5H16.5V21.5Z')
 
 
+# --- Pfade glätten -----------------------------------------------------------
+# ImageMagicks SVG-Renderer nähert Bögen und Kurven mit wenigen Geraden an,
+# wodurch Rundungen eckig wirken. Deshalb werden alle Pfade hier selbst in
+# feine Polygone zerlegt und nur noch als Geradenzüge übergeben.
+
+STEPS = 256  # Stützpunkte pro Bogen/Kurve
+
+
+def _arc(x1, y1, rx, ry, phi, large, sweep, x2, y2):
+    """SVG-Bogen (Endpunkt-Darstellung) als Punktliste ohne Startpunkt."""
+    if rx == 0 or ry == 0:
+        return [(x2, y2)]
+    phi = math.radians(phi)
+    cp, sp = math.cos(phi), math.sin(phi)
+    dx, dy = (x1 - x2) / 2, (y1 - y2) / 2
+    x1p, y1p = cp * dx + sp * dy, -sp * dx + cp * dy
+    rx, ry = abs(rx), abs(ry)
+    lam = x1p ** 2 / rx ** 2 + y1p ** 2 / ry ** 2
+    if lam > 1:
+        rx, ry = rx * math.sqrt(lam), ry * math.sqrt(lam)
+    num = rx ** 2 * ry ** 2 - rx ** 2 * y1p ** 2 - ry ** 2 * x1p ** 2
+    den = rx ** 2 * y1p ** 2 + ry ** 2 * x1p ** 2
+    co = math.sqrt(max(0, num / den)) * (-1 if large == sweep else 1)
+    cxp, cyp = co * rx * y1p / ry, -co * ry * x1p / rx
+    cx = cp * cxp - sp * cyp + (x1 + x2) / 2
+    cy = sp * cxp + cp * cyp + (y1 + y2) / 2
+
+    def ang(ux, uy, vx, vy):
+        a = math.atan2(ux * vy - uy * vx, ux * vx + uy * vy)
+        return a
+
+    t1 = ang(1, 0, (x1p - cxp) / rx, (y1p - cyp) / ry)
+    dt = ang((x1p - cxp) / rx, (y1p - cyp) / ry,
+             (-x1p - cxp) / rx, (-y1p - cyp) / ry)
+    if not sweep and dt > 0:
+        dt -= 2 * math.pi
+    elif sweep and dt < 0:
+        dt += 2 * math.pi
+    pts = []
+    for i in range(1, STEPS + 1):
+        t = t1 + dt * i / STEPS
+        x, y = rx * math.cos(t), ry * math.sin(t)
+        pts.append((cp * x - sp * y + cx, sp * x + cp * y + cy))
+    pts[-1] = (x2, y2)
+    return pts
+
+
+def _cubic(p0, p1, p2, p3):
+    pts = []
+    for i in range(1, STEPS + 1):
+        t = i / STEPS
+        u = 1 - t
+        pts.append(tuple(u ** 3 * a + 3 * u * u * t * b + 3 * u * t * t * c
+                         + t ** 3 * d for a, b, c, d in zip(p0, p1, p2, p3)))
+    return pts
+
+
+def flatten(d):
+    """Wandelt einen SVG-Pfad in einen Pfad nur aus M/L/Z um."""
+    tokens = re.findall(r'[A-Za-z]|-?(?:\d+\.?\d*|\.\d+)(?:e-?\d+)?', d)
+    out, i = [], 0
+    cur = start = (0.0, 0.0)
+    last_ctrl = None
+    cmd = None
+
+    def num():
+        nonlocal i
+        v = float(tokens[i])
+        i += 1
+        return v
+
+    def flag():
+        # Flags dürfen ohne Trenner stehen („0,1 1,0“ ist eindeutig genug).
+        return num() != 0
+
+    while i < len(tokens):
+        if tokens[i].isalpha():
+            cmd = tokens[i]
+            i += 1
+        rel = cmd.islower()
+        c = cmd.upper()
+        ox, oy = cur if rel else (0.0, 0.0)
+        ctrl = None
+        if c == 'Z':
+            out.append('Z')
+            cur = start
+        elif c == 'M':
+            cur = start = (ox + num(), oy + num())
+            out.append(f'M{cur[0]:.4f},{cur[1]:.4f}')
+            cmd = 'l' if rel else 'L'
+        elif c in 'LHV':
+            if c == 'L':
+                cur = (ox + num(), oy + num())
+            elif c == 'H':
+                cur = ((cur[0] if rel else 0) + num(), cur[1])
+            else:
+                cur = (cur[0], (cur[1] if rel else 0) + num())
+            out.append(f'L{cur[0]:.4f},{cur[1]:.4f}')
+        elif c in 'CS':
+            if c == 'C':
+                p1 = (ox + num(), oy + num())
+            else:
+                p1 = ((2 * cur[0] - last_ctrl[0], 2 * cur[1] - last_ctrl[1])
+                      if last_ctrl else cur)
+            p2 = (ox + num(), oy + num())
+            p3 = (ox + num(), oy + num())
+            out += [f'L{x:.4f},{y:.4f}' for x, y in _cubic(cur, p1, p2, p3)]
+            cur, ctrl = p3, p2
+        elif c == 'A':
+            rx, ry, phi = num(), num(), num()
+            large, sweep = flag(), flag()
+            end = (ox + num(), oy + num())
+            out += [f'L{x:.4f},{y:.4f}'
+                    for x, y in _arc(*cur, rx, ry, phi, large, sweep, *end)]
+            cur = end
+        else:
+            raise ValueError(f'Pfadbefehl {cmd} nicht unterstützt')
+        last_ctrl = ctrl
+    return ' '.join(out)
+
+
 def magick(*args):
     subprocess.run(['magick', *args], check=True)
 
@@ -52,8 +175,8 @@ def svg(path_attrs):
 def render_glyph(tmp):
     """Weißes Logo auf transparentem Grund, 2048 px."""
     parts = {
-        'timer': f"<path fill='#fff' d='{TIMER}'/>",
-        'wrench': f"<path fill='#fff' transform='{WRENCH_TRANSFORM}' d='{WRENCH}'/>",
+        'timer': f"<path fill='#fff' d='{flatten(TIMER)}'/>",
+        'wrench': f"<path fill='#fff' transform='{WRENCH_TRANSFORM}' d='{flatten(WRENCH)}'/>",
     }
     for name, body in parts.items():
         with open(os.path.join(tmp, f'{name}.svg'), 'w') as f:
@@ -65,7 +188,8 @@ def render_glyph(tmp):
     gap_px = RING_WIDTH * 2048 / 24
     magick(os.path.join(tmp, 'wrench.png'), '-alpha', 'extract', '-negate',
            '-morphology', 'Distance:-1', 'Euclidean:4,1',
-           '-threshold', f'{gap_px:.0f}', '-negate',
+           # weicher Übergang über ~2 px statt harter Schwelle (Kantenglättung)
+           '-level', f'{gap_px - 1:.1f},{gap_px + 1:.1f}', '-negate',
            '-background', '#fff', '-alpha', 'shape', os.path.join(tmp, 'gap.png'))
     glyph = os.path.join(tmp, 'glyph.png')
     magick(os.path.join(tmp, 'timer.png'), os.path.join(tmp, 'gap.png'),
