@@ -10,6 +10,7 @@ import 'screens/absences_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/today_screen.dart';
+import 'tray_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,9 +19,13 @@ Future<void> main() async {
   final data = await repo.load();
   await NotificationService.instance.init();
   await NotificationService.instance.update(data);
+  await TrayService.ensureInitialized();
+  final state = AppState(repo, data)..sync.start();
+  // Desktop: Steuerung über den Infobereich (Tray)
+  await TrayService.instance.attach(state);
   runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(repo, data),
+    ChangeNotifierProvider.value(
+      value: state,
       child: const AnTaTimeApp(),
     ),
   );

@@ -5,7 +5,9 @@ import '../app_state.dart';
 import '../format.dart';
 import '../models.dart';
 import '../notification_service.dart';
+import '../tray_service.dart';
 import '../widgets/backup_tiles.dart';
+import '../widgets/sync_tiles.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -179,6 +181,21 @@ class SettingsScreen extends StatelessWidget {
                   state.updateSettings((x) => x.showNotification = v),
             ),
           ],
+          if (TrayService.supported) ...[
+            _Section('Infobereich'),
+            SwitchListTile(
+              secondary: const Icon(Icons.schedule_outlined),
+              title: const Text('Symbol im Infobereich (Tray)'),
+              subtitle: const Text('Start/Pause und Feierabend über das '
+                  'Symbol; Schließen des Fensters minimiert in den '
+                  'Infobereich'),
+              value: s.showNotification,
+              onChanged: (v) =>
+                  state.updateSettings((x) => x.showNotification = v),
+            ),
+          ],
+          _Section('Synchronisation'),
+          const SyncTiles(),
           _Section('Daten'),
           const BackupTiles(),
           const SizedBox(height: 24),

@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Nur im Debug-Build: unverschlüsseltes ws:// zum lokalen Sync-Server
+         (z. B. ws://10.0.2.2:8080 im Emulator). Release nutzt nur wss://. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_android/shared_preferences_android.dart';
 
 import 'models.dart';
+import 'sync/cross_tab_lock.dart';
+import 'sync/sync_service.dart';
 
 /// Persistenz über SharedPreferences (Android/iOS nativ, im Browser
 /// localStorage). Ohne Cache, damit Änderungen aus dem Hintergrund
@@ -13,7 +15,7 @@ import 'models.dart';
 /// Auf Android liegen die Daten in der SharedPreferences-Datei „antatime“,
 /// damit die native Benachrichtigung (TrackingStore.kt) sie direkt lesen und
 /// ändern kann.
-class Repository {
+class Repository implements SyncStore {
   Repository() : _prefs = SharedPreferencesAsync(options: _options);
 
   static bool get _isAndroid =>
@@ -37,6 +39,28 @@ class Repository {
   /// wurde. Bis zum nächsten Start bleibt die Benachrichtigung dann aus.
   static const _kStoppedDay = 'notificationStoppedDay';
 
+  /// Sync-Zustand (Code, Server, Snapshot), siehe lib/sync/.
+  static const _kSync = 'sync';
+
+  Future<void> _lock = Future.value();
+
+  /// Führt [action] exklusiv aus (App-Änderungen und Sync nacheinander,
+  /// im Browser auch über mehrere Tabs hinweg).
+  @override
+  Future<T> exclusive<T>(Future<T> Function() action) {
+    final result =
+        _lock.then((_) => crossTabLock('antatime-data', action));
+    _lock = result.then((_) {}, onError: (_) {});
+    return result;
+  }
+
+  @override
+  Future<String?> loadSyncState() => _prefs.getString(_kSync);
+
+  @override
+  Future<void> saveSyncState(String? json) =>
+      json == null ? _prefs.remove(_kSync) : _prefs.setString(_kSync, json);
+
   static const exportFormat = 'antatime-backup';
   static const exportVersion = 1;
 
@@ -54,6 +78,7 @@ class Repository {
     }
   }
 
+  @override
   Future<AppData> load() async {
     await _migrate();
     final sessionsRaw = await _prefs.getString(_kSessions);
@@ -88,6 +113,7 @@ class Repository {
   Future<void> saveSettings(Settings settings) =>
       _prefs.setString(_kSettings, jsonEncode(settings.toJson()));
 
+  @override
   Future<void> saveAll(AppData data) async {
     await saveSessions(data.sessions);
     await saveAbsences(data.absences);
@@ -96,6 +122,18 @@ class Repository {
 
   /// Nach einem Start soll die Benachrichtigung wieder erscheinen.
   Future<void> clearStopped() => _prefs.remove(_kStoppedDay);
+
+  static String _dayKey(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// „Feierabend“ für [now] merken (wie TrackingStore.stop auf Android).
+  Future<void> markStopped(DateTime now) =>
+      _prefs.setString(_kStoppedDay, _dayKey(now));
+
+  /// Wurde heute „Feierabend“ gewählt (und seitdem nicht wieder gestartet)?
+  Future<bool> stoppedOn(DateTime now) async =>
+      await _prefs.getString(_kStoppedDay) == _dayKey(now);
 
   /// Start/Pause umschalten. Wird von App und Benachrichtigung genutzt.
   /// Gibt `true` zurück, wenn danach eine Arbeitszeit läuft.
