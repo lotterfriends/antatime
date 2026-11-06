@@ -37,7 +37,7 @@ if [[ -n "${GITHUB_RUN_NUMBER:-}" && " $* " != *" --build-number"* ]]; then
 fi
 
 flutter_prepare
-"$FLUTTER" build apk --release ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "$@"
+"$FLUTTER" build apk --release ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "$@"
 
 OUT="$DIST_DIR/antatime-$APP_VERSION.apk"
 cp build/app/outputs/flutter-apk/app-release.apk "$OUT"

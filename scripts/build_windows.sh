@@ -8,7 +8,7 @@
 source "$(dirname "$0")/common.sh"
 
 flutter_prepare
-"$FLUTTER" build windows --release "$@"
+"$FLUTTER" build windows --release ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} "$@"
 RELEASE_DIR="$ROOT_DIR/build/windows/x64/runner/Release"
 
 ZIP="$DIST_DIR/antatime-$APP_VERSION-windows-x64.zip"
@@ -26,7 +26,8 @@ for p in "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" "/c/Program Files/Inno S
   [[ -z "$ISCC" && -x "$p" ]] && ISCC="$p"
 done
 if [[ -n "$ISCC" ]]; then
-  "$ISCC" /Q "/DAppVersion=$APP_VERSION" \
+  # Git Bash würde /Q und /D… sonst in Pfade umwandeln.
+  MSYS2_ARG_CONV_EXCL='*' "$ISCC" /Q "/DAppVersion=$APP_VERSION" \
     "/DSourceDir=$(cygpath -w "$RELEASE_DIR")" \
     "/DOutputDir=$(cygpath -w "$DIST_DIR")" \
     "$(cygpath -w "$ROOT_DIR/windows/installer/antatime.iss")"

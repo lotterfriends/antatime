@@ -8,7 +8,7 @@
 source "$(dirname "$0")/common.sh"
 
 flutter_prepare
-"$FLUTTER" build macos --release "$@"
+"$FLUTTER" build macos --release ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} "$@"
 APP="$ROOT_DIR/build/macos/Build/Products/Release/AnTaTime.app"
 
 ZIP="$DIST_DIR/AnTaTime-$APP_VERSION-macos.zip"

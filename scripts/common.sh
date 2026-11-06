@@ -16,6 +16,13 @@ fi
 # Version aus pubspec.yaml, z. B. 1.0.0+1 -> 1.0.0
 APP_VERSION="$(grep -E '^version:' "$ROOT_DIR/pubspec.yaml" | sed -E 's/version:[[:space:]]*([^+]+).*/\1/')"
 
+# Standard-Sync-Server, der in der App vorausgefüllt ist (z. B. antatime.de).
+# In GitHub Actions aus der Repository-Variable SYNC_URL.
+DART_DEFINES=()
+if [[ -n "${SYNC_URL:-}" ]]; then
+  DART_DEFINES+=("--dart-define=SYNC_URL=$SYNC_URL")
+fi
+
 mkdir -p "$DIST_DIR"
 cd "$ROOT_DIR"
 

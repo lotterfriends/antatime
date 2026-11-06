@@ -8,7 +8,7 @@ source "$(dirname "$0")/common.sh"
 BASE_HREF="${BASE_HREF:-/}"
 
 flutter_prepare
-"$FLUTTER" build web --release --base-href "$BASE_HREF" "$@"
+"$FLUTTER" build web --release --base-href "$BASE_HREF" ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} "$@"
 
 OUT="$DIST_DIR/antatime-web-$APP_VERSION.zip"
 rm -f "$OUT"

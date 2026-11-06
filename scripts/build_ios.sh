@@ -15,11 +15,11 @@ fi
 flutter_prepare
 
 if [[ "${IOS_SIGN:-0}" == "1" ]]; then
-  "$FLUTTER" build ipa --release "$@"
+  "$FLUTTER" build ipa --release ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} "$@"
   cp build/ios/ipa/*.ipa "$DIST_DIR/antatime-$APP_VERSION.ipa"
   echo "IPA: $DIST_DIR/antatime-$APP_VERSION.ipa"
 else
-  "$FLUTTER" build ios --release --no-codesign "$@"
+  "$FLUTTER" build ios --release --no-codesign ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} "$@"
   TMP="$(mktemp -d)"
   mkdir -p "$TMP/Payload"
   cp -R build/ios/iphoneos/Runner.app "$TMP/Payload/"

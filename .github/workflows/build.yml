@@ -12,6 +12,8 @@ permissions:
 
 env:
   FLUTTER_VERSION: 3.47.9
+  # Standard-Sync-Server in der App (Repository-Variable, z. B. antatime.de)
+  SYNC_URL: ${{ vars.SYNC_URL }}
 
 jobs:
   test:

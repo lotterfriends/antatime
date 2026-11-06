@@ -24,7 +24,7 @@ case "$(uname -m)" in
 esac
 
 flutter_prepare
-"$FLUTTER" build linux --release "$@"
+"$FLUTTER" build linux --release ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} "$@"
 BUNDLE="$ROOT_DIR/build/linux/$ARCH/release/bundle"
 ICON="$ROOT_DIR/linux/assets/antatime.png"
 DESKTOP="$ROOT_DIR/linux/assets/$APP_ID.desktop"

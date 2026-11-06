@@ -89,6 +89,7 @@ Die Skripte in `scripts/` werden sowohl lokal als auch von GitHub Actions verwen
 Optionen über Umgebungsvariablen:
 
 - `FLUTTER=/pfad/zu/flutter` – anderes Flutter-Binary verwenden
+- `SYNC_URL=antatime.de` – Sync-Server, der beim Einrichten der Synchronisation vorausgefüllt ist (in GitHub Actions aus der Repository-Variable `SYNC_URL`)
 - `BASE_HREF=/antatime/` – Unterpfad für die Web-App (z. B. GitHub Pages)
 - `SKIP_DEB=1`, `SKIP_APPIMAGE=1` – einzelne Linux-Pakete auslassen
 - `IOS_SIGN=1` – signiertes IPA über `flutter build ipa` (Apple-Developer-Account in Xcode nötig)
