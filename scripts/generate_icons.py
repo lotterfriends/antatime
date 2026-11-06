@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Erzeugt App-Icons (Android, iOS, Web) und die Statusleisten-Icons.
+"""Erzeugt App-Icons (Android, iOS, Web, Linux, Windows, macOS) und die Statusleisten-Icons.
 
 App-Logo: Stoppuhr (MDI „timer-outline“) mit Schraubenschlüssel (MDI „wrench“),
 Material Design Icons, Apache License 2.0 – https://pictogrammers.com
 Hintergrund: Akzentfarbe der App (Seed-Farbe in lib/main.dart).
 
 Voraussetzung: ImageMagick 7 (`magick`). Aufruf aus dem Projektverzeichnis:
-    python3 scripts/generate_icons.py
+    python3 scripts/generate_icons.py            # alles
+    python3 scripts/generate_icons.py desktop    # nur Linux/Windows/macOS
 """
 
 import math
@@ -268,6 +269,28 @@ def web(glyph):
         icon(glyph, f'{d}/icons/Icon-maskable-{s}.png', s, 0.5)
 
 
+def desktop(glyph):
+    # Linux: Fenster-/Starter-Icon (wird ins Bundle und nach hicolor kopiert)
+    icon(glyph, os.path.join(ROOT, 'linux/assets/antatime.png'), 512, 0.6,
+         shape='rounded')
+    # Windows: .ico mit allen gängigen Größen
+    tmp = os.path.dirname(glyph)
+    sizes = (16, 24, 32, 48, 64, 128, 256)
+    pngs = []
+    for s in sizes:
+        out = os.path.join(tmp, f'win-{s}.png')
+        icon(glyph, out, s, 0.66 if s <= 32 else 0.6, shape='rounded')
+        pngs.append(out)
+    magick(*pngs, os.path.join(ROOT, 'windows/runner/resources/app_icon.ico'))
+    # macOS: abgerundetes Quadrat mit Rand wie bei Systemsymbolen
+    d = os.path.join(ROOT, 'macos/Runner/Assets.xcassets/AppIcon.appiconset')
+    for s in (16, 32, 64, 128, 256, 512, 1024):
+        big = os.path.join(tmp, f'mac-{s}.png')
+        icon(glyph, big, round(s * 0.82), 0.6, shape='rounded')
+        magick('-size', f'{s}x{s}', 'xc:none', big, '-gravity', 'center',
+               '-composite', os.path.join(d, f'app_icon_{s}.png'))
+
+
 # --- Statusleisten-Icons (Vector Drawables, weiß) ---------------------------
 
 # Flüssige Drehung: ~30 Bilder/s, 2,67° pro Bild. 33 ms entsprechen genau
@@ -337,14 +360,82 @@ def status_icons():
                        f'        android:pathData="{TIMER_PAUSE}"/>\n'))
 
 
+# --- Tray-Symbole (Desktop) ---------------------------------------------------
+# Statisch, ohne Animation: laufend = Uhr mit Pfeil (erstes Bild der Android-
+# Animation), pausiert = Stoppuhr mit Pause-Balken.
+# Linux/Windows: weißes Symbol auf farbigem Grund (auf hellen und dunklen
+# Leisten lesbar), laufend Akzentfarbe, pausiert grau. macOS: schwarzes
+# Template-Symbol, das sich der Menüleiste anpasst.
+TRAY_PAUSED_BG = '#757575'
+
+
+def render_running_glyph(tmp):
+    u = 2048 / 24  # Pixel pro Einheit (24er-Raster der Android-Vektoren)
+
+    def p(x, y):
+        return f'{x * u:.1f},{y * u:.1f}'
+    out = os.path.join(tmp, 'running.png')
+    magick('-size', '2048x2048', 'xc:none', '-fill', 'none', '-stroke', '#fff',
+           '-strokewidth', f'{1.8 * u:.1f}',
+           '-draw', f'circle {p(12, 12)} {p(12, 6.6)}',
+           '-strokewidth', f'{1.6 * u:.1f}',
+           '-draw', f'stroke-linecap round stroke-linejoin round '
+                    f'polyline {p(12, 9.2)} {p(12, 12)} {p(14, 13.4)}',
+           '-strokewidth', f'{1.9 * u:.1f}',
+           '-draw', f'stroke-linecap round ellipse {p(12, 12)} '
+                    f'{9.4 * u:.1f},{9.4 * u:.1f} 270,540',
+           '-stroke', 'none', '-fill', '#fff',
+           '-draw', f'polygon {p(2.6, 8.6)} {p(5.1, 12.9)} {p(0.1, 12.9)}',
+           out)
+    return out
+
+
+def render_paused_glyph(tmp):
+    with open(os.path.join(tmp, 'paused.svg'), 'w') as f:
+        f.write(svg(f"<path fill='#fff' d='{flatten(TIMER_PAUSE)}'/>"))
+    out = os.path.join(tmp, 'paused.png')
+    magick('-background', 'none', os.path.join(tmp, 'paused.svg'),
+           '-resize', '2048x2048', out)
+    return out
+
+
+def tray_icons(tmp):
+    d = os.path.join(ROOT, 'assets/tray')
+    os.makedirs(d, exist_ok=True)
+    glyphs = {'running': (render_running_glyph(tmp), ACCENT),
+              'paused': (render_paused_glyph(tmp), TRAY_PAUSED_BG)}
+    for name, (glyph, bg) in glyphs.items():
+        icon(glyph, f'{d}/{name}.png', 64, 0.74, background=bg, shape='rounded')
+        pngs = []
+        for s in (16, 20, 24, 32, 48, 64):
+            out = os.path.join(tmp, f'tray-{name}-{s}.png')
+            icon(glyph, out, s, 0.78, background=bg, shape='rounded')
+            pngs.append(out)
+        magick(*pngs, f'{d}/{name}.ico')
+        # macOS-Template: nur der Alphakanal zählt, Farbe schwarz
+        icon(glyph, os.path.join(tmp, f'tpl-{name}.png'), 64, 0.9,
+             background=None)
+        magick(os.path.join(tmp, f'tpl-{name}.png'), '-fill', 'black',
+               '-colorize', '100', f'{d}/{name}_template.png')
+
+
 def main():
     with tempfile.TemporaryDirectory() as tmp:
         glyph = render_glyph(tmp)
         android(glyph)
         ios(glyph)
         web(glyph)
+        desktop(glyph)
+        tray_icons(tmp)
     status_icons()
 
 
 if __name__ == '__main__':
-    main()
+    import sys
+    if sys.argv[1:] == ['desktop']:
+        # Nur die Desktop-Icons neu erzeugen
+        with tempfile.TemporaryDirectory() as tmp:
+            desktop(render_glyph(tmp))
+            tray_icons(tmp)
+    else:
+        main()

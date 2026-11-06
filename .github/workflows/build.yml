@@ -76,6 +76,78 @@ jobs:
         with:
           path: build/web
 
+  linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Linux-Abhängigkeiten
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev libayatana-appindicator3-dev
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build Linux (tar.gz, deb, AppImage)
+        run: ./scripts/build_linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.AppImage
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Inno Setup bereitstellen
+        run: command -v iscc || [ -x "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ] || choco install innosetup -y --no-progress
+      - name: Build Windows (Installer, Zip)
+        run: ./scripts/build_windows.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/*.zip
+            dist/*.exe
+
+  # Wie iOS optional, da macOS-Runner knapp sein können.
+  macos:
+    needs: test
+    if: vars.SKIP_MACOS != 'true'
+    runs-on: macos-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Build macOS (dmg, unsigniert)
+        run: ./scripts/build_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: |
+            dist/*.dmg
+            dist/*.zip
+          if-no-files-found: ignore
+
   # iOS ist optional: macOS-Runner sind bei GitHub oft knapp („job was not
   # acquired“). Ein Fehlschlag hier macht den Lauf nicht rot und blockiert
   # kein Release. Komplett abschalten: Repository-Variable SKIP_IOS=true.
@@ -119,11 +191,12 @@ jobs:
 
   # Bei Tags (v1.2.3) ein GitHub-Release mit allen Paketen erstellen.
   release:
-    needs: [android, web, ios]
-    # Läuft auch, wenn iOS fehlschlägt oder übersprungen wird – dann ohne IPA.
+    needs: [android, web, linux, windows, ios, macos]
+    # Läuft auch, wenn iOS/macOS fehlschlagen oder übersprungen werden.
     if: >-
       always() && startsWith(github.ref, 'refs/tags/v') &&
-      needs.android.result == 'success' && needs.web.result == 'success'
+      needs.android.result == 'success' && needs.web.result == 'success' &&
+      needs.linux.result == 'success' && needs.windows.result == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write

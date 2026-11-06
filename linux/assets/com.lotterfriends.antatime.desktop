@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=AnTaTime
+GenericName=Arbeitszeiterfassung
+Comment=Arbeitszeit erfassen, Pausen und Überstunden im Blick
+Exec=antatime
+Icon=com.lotterfriends.antatime
+Terminal=false
+Categories=Office;Utility;
+Keywords=Arbeitszeit;Zeiterfassung;Stempeluhr;Überstunden;
+StartupWMClass=com.lotterfriends.antatime
