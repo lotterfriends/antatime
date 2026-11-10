@@ -15,7 +15,13 @@ struct _MyApplication {
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
 
 // Called when first Flutter frame received.
+// Beim Autostart (--autostart) entscheidet die App selbst, ob das Fenster
+// erscheint oder nur das Symbol im Infobereich (lib/main.dart).
 static void first_frame_cb(MyApplication* self, FlView* view) {
+  if (self->dart_entrypoint_arguments != nullptr &&
+      g_strv_contains(self->dart_entrypoint_arguments, "--autostart")) {
+    return;
+  }
   gtk_widget_show(gtk_widget_get_toplevel(GTK_WIDGET(view)));
 }
 

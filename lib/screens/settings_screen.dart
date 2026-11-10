@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../desktop/autostart.dart';
 import '../format.dart';
 import '../models.dart';
 import '../notification_service.dart';
 import '../tray_service.dart';
+import '../widgets/autostart_tile.dart';
 import '../widgets/backup_tiles.dart';
 import '../widgets/sync_tiles.dart';
 
@@ -194,6 +196,7 @@ class SettingsScreen extends StatelessWidget {
                   state.updateSettings((x) => x.showNotification = v),
             ),
           ],
+          if (Autostart.instance.supported) const AutostartTile(),
           _Section('Synchronisation'),
           const SyncTiles(),
           _Section('Daten'),

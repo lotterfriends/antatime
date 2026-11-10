@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'app_state.dart';
+import 'desktop/autostart.dart';
+import 'desktop/start_prompt.dart';
 import 'notification_service.dart';
 import 'repository.dart';
 import 'screens/absences_screen.dart';
@@ -12,8 +15,9 @@ import 'screens/settings_screen.dart';
 import 'screens/today_screen.dart';
 import 'tray_service.dart';
 
-Future<void> main() async {
+Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  final autostarted = await Autostart.instance.launchedAtStartup(args);
   await initializeDateFormatting('de_DE');
   final repo = Repository();
   final data = await repo.load();
@@ -29,6 +33,22 @@ Future<void> main() async {
       child: const AnTaTimeApp(),
     ),
   );
+  if (autostarted) await _afterAutostart(state);
+}
+
+/// Nach dem Start mit dem System: nur im Infobereich bleiben (falls aktiv)
+/// und per Benachrichtigung fragen, ob die Zeiterfassung beginnen soll.
+///
+/// Linux/Windows zeigen das Fenster bei `--autostart` nicht von selbst an.
+Future<void> _afterAutostart(AppState state) async {
+  if (TrayService.supported) {
+    if (state.data.settings.showNotification) {
+      await windowManager.hide();
+    } else {
+      await windowManager.show();
+    }
+  }
+  await StartPrompt.instance.show(state);
 }
 
 class AnTaTimeApp extends StatelessWidget {
