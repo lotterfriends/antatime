@@ -80,7 +80,10 @@ jobs:
 
   linux:
     needs: test
-    runs-on: ubuntu-latest
+    # Fest auf 24.04: Unter Ubuntu 26 ist app_indicator_new (tray_manager)
+    # als veraltet markiert und der Build bricht wegen -Werror ab. Älteres
+    # Ubuntu hält außerdem das .deb mit mehr Systemen kompatibel (glibc).
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - name: Linux-Abhängigkeiten
