@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Erinnerung zum Start nach einem Neustart wieder einplanen -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- Für die optionale Synchronisation über einen AnTaTime-Server -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
@@ -36,6 +38,15 @@
             android:value="2" />
         <!-- Start/Pause/Feierabend aus der Benachrichtigung (Android, nativ) -->
         <receiver android:exported="false" android:name=".NotificationActionReceiver" />
+        <!-- Erinnerung zum Start der Zeiterfassung (AlarmManager) -->
+        <receiver android:exported="false" android:name=".ReminderReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+            </intent-filter>
+        </receiver>
         <!-- Aktionen von flutter_local_notifications (iOS-Pfad, Altbestand) -->
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
     </application>

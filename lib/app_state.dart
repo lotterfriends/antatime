@@ -14,6 +14,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     NotificationService.instance.onToggle = toggle;
+    NotificationService.instance.onStart = () {
+      if (!isRunning) toggle();
+    };
     NotificationService.instance.onDataChanged = reload;
     this.sync.onRemoteData = _onRemoteData;
   }
@@ -48,7 +51,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      reload();
+      // Danach die Erinnerungen neu planen (neuer Tag, Zeitraum verlängern).
+      reload().then((_) => _syncNotification());
       sync.resume();
     }
   }
@@ -189,7 +193,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await _repo.saveSettings(data.settings);
     });
     _changed();
-    if (data.settings.showNotification) {
+    if (data.settings.showNotification ||
+        data.settings.reminderMinutes != null) {
       await NotificationService.instance.requestPermission();
     }
     await _syncNotification();

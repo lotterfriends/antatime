@@ -182,6 +182,38 @@ class SettingsScreen extends StatelessWidget {
               onChanged: (v) =>
                   state.updateSettings((x) => x.showNotification = v),
             ),
+            SwitchListTile(
+              secondary: const Icon(Icons.alarm),
+              title: const Text('Erinnerung zum Start'),
+              subtitle: const Text('An Arbeitstagen erinnern, falls die '
+                  'Zeiterfassung noch nicht gestartet wurde (nicht an '
+                  'Feiertagen und bei Abwesenheit)'),
+              value: s.reminderMinutes != null,
+              onChanged: (v) async {
+                if (!v) {
+                  await state.updateSettings((x) => x.reminderMinutes = null);
+                  return;
+                }
+                final m = await _pickReminderTime(context, 9 * 60);
+                if (m != null) {
+                  await state.updateSettings((x) => x.reminderMinutes = m);
+                }
+              },
+            ),
+            if (s.reminderMinutes != null)
+              ListTile(
+                leading: const SizedBox(width: 24),
+                title: const Text('Uhrzeit der Erinnerung'),
+                trailing: Text('${_formatMinutes(s.reminderMinutes!)} Uhr',
+                    style: theme.textTheme.titleMedium),
+                onTap: () async {
+                  final m =
+                      await _pickReminderTime(context, s.reminderMinutes!);
+                  if (m != null) {
+                    await state.updateSettings((x) => x.reminderMinutes = m);
+                  }
+                },
+              ),
           ],
           if (TrayService.supported) ...[
             _Section('Infobereich'),
@@ -221,6 +253,20 @@ class _Section extends StatelessWidget {
                 .titleSmall
                 ?.copyWith(color: Theme.of(context).colorScheme.primary)),
       );
+}
+
+String _formatMinutes(int minutes) =>
+    '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
+    '${(minutes % 60).toString().padLeft(2, '0')}';
+
+/// Uhrzeit für die Start-Erinnerung wählen (Minuten nach Mitternacht).
+Future<int?> _pickReminderTime(BuildContext context, int initial) async {
+  final t = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay(hour: initial ~/ 60, minute: initial % 60),
+    helpText: 'Erinnerung um',
+  );
+  return t == null ? null : t.hour * 60 + t.minute;
 }
 
 /// Fragt den Faktor für Arbeit an Abwesenheitstagen ab.

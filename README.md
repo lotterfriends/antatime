@@ -6,6 +6,7 @@ Arbeitszeiterfassung mit Stundenkonto – als Flutter-App für **Android**, **iP
 
 - **Start / Pause** der Arbeitszeit pro Tag – in der App und direkt im **Benachrichtigungsbereich** (Android & iOS) bzw. im **Infobereich (Tray)** der Desktop-Version
 - Die Zeit zwischen zwei Arbeitszeiten an einem Tag wird als **Pause** gewertet
+- **Erinnerung zum Start** (Android & iOS): In den Einstellungen eine Uhrzeit wählen – an Arbeitstagen (ohne Feiertage und Abwesenheiten) kommt dann eine Benachrichtigung, falls die Zeiterfassung noch nicht gestartet wurde, mit „Starten“-Aktion. Die Einstellung gilt je Gerät und wird nicht synchronisiert
 - **Stundenkonto** mit frei wählbarem Startwert (Standard 0) und Erfassungsbeginn
 - **Wochenstunden** und **Tagesstunden** (beide änderbar, sie werden über die Anzahl der Arbeitstage abgeglichen)
 - **Arbeitstage** frei wählbar (z. B. Mo–Fr)

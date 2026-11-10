@@ -121,6 +121,7 @@ class Settings {
     this.showNotification = true,
     this.federalState,
     this.absenceWorkFactor = 1,
+    this.reminderMinutes,
   })  : workdays = workdays ?? {1, 2, 3, 4, 5},
         startDate = dayOf(startDate ?? DateTime.now());
 
@@ -148,6 +149,11 @@ class Settings {
   /// Abwesenheit (z. B. 1,5 oder 2). 1 = jede Stunde zählt einfach.
   double absenceWorkFactor;
 
+  /// Uhrzeit (Minuten nach Mitternacht), zu der an Arbeitstagen an den
+  /// Start der Zeiterfassung erinnert wird, falls noch nicht gestartet
+  /// (`null` = keine Erinnerung).
+  int? reminderMinutes;
+
   int get dailyTargetMinutes => (dailyHours * 60).round();
 
   Map<String, dynamic> toJson() => {
@@ -159,6 +165,7 @@ class Settings {
         'showNotification': showNotification,
         if (federalState != null) 'federalState': federalState!.name,
         'absenceWorkFactor': absenceWorkFactor,
+        if (reminderMinutes != null) 'reminderMinutes': reminderMinutes,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
@@ -175,6 +182,7 @@ class Settings {
         federalState: FederalState.byName(j['federalState'] as String?),
         absenceWorkFactor:
             (j['absenceWorkFactor'] as num?)?.toDouble() ?? 1,
+        reminderMinutes: (j['reminderMinutes'] as num?)?.toInt(),
       );
 }
 

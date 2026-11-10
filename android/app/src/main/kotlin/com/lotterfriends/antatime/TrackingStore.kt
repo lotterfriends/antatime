@@ -134,4 +134,15 @@ class TrackingStore(context: Context) {
     }
 
     fun running(): Session? = sessions().firstOrNull { it.end == null }
+
+    /** Wurde heute schon gestartet (oder läuft eine Arbeitszeit)? Wie `startedOn` in Dart. */
+    fun startedToday(): Boolean {
+        val today = LocalDate.now(zone)
+        return sessions().any { it.end == null || it.start.atZone(zone).toLocalDate() == today }
+    }
+
+    /** Arbeitszeit starten, falls keine läuft. */
+    fun start(now: Instant = Instant.now()) {
+        if (running() == null) toggle(now)
+    }
 }

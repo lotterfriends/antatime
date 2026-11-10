@@ -4,10 +4,12 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/timezone.dart' as tz;
 
 import 'balance.dart';
 import 'format.dart';
 import 'models.dart';
+import 'reminder.dart';
 import 'repository.dart';
 
 const _notificationId = 1;
@@ -16,17 +18,29 @@ const _actionToggle = 'toggle';
 const _categoryRunning = 'running';
 const _categoryPaused = 'paused';
 
+/// Erinnerung an den Start der Zeiterfassung (iOS; Android nativ, siehe
+/// ReminderScheduler.kt). IDs 100–163 für die geplanten Erinnerungen.
+const _reminderIdBase = 100;
+const _reminderMaxCount = 64;
+const _reminderChannelId = 'reminder';
+const _actionStart = 'start';
+const _categoryReminder = 'reminder';
+
 /// Wird ausgeführt, wenn in der Benachrichtigung „Start“/„Pause“ gedrückt
 /// wird, während die App im Hintergrund ist oder beendet wurde.
 @pragma('vm:entry-point')
 Future<void> notificationActionBackground(NotificationResponse response) async {
-  if (response.actionId != _actionToggle) return;
+  if (response.actionId != _actionToggle && response.actionId != _actionStart) {
+    return;
+  }
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
   final repo = Repository();
   final data = await repo.load();
-  Repository.toggle(data, DateTime.now());
-  await repo.saveSessions(data.sessions);
+  if (response.actionId == _actionToggle || data.running == null) {
+    Repository.toggle(data, DateTime.now());
+    await repo.saveSessions(data.sessions);
+  }
   await NotificationService.instance.init();
   await NotificationService.instance.update(data);
 }
@@ -47,6 +61,9 @@ class NotificationService {
 
   /// Wird aufgerufen, wenn die Aktion im Vordergrund ausgelöst wird (iOS).
   VoidCallback? onToggle;
+
+  /// „Starten“ aus der Erinnerung im Vordergrund (iOS).
+  VoidCallback? onStart;
 
   /// Wird aufgerufen, wenn die native Benachrichtigung die Daten geändert
   /// hat (Android).
@@ -78,12 +95,16 @@ class NotificationService {
         DarwinNotificationCategory(_categoryPaused, actions: [
           DarwinNotificationAction.plain(_actionToggle, 'Start'),
         ]),
+        DarwinNotificationCategory(_categoryReminder, actions: [
+          DarwinNotificationAction.plain(_actionStart, 'Starten'),
+        ]),
       ],
     );
     await _plugin.initialize(
       settings: InitializationSettings(android: android, iOS: darwin),
       onDidReceiveNotificationResponse: (r) {
         if (r.actionId == _actionToggle) onToggle?.call();
+        if (r.actionId == _actionStart) onStart?.call();
       },
       onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
     );
@@ -99,7 +120,7 @@ class NotificationService {
     await _plugin
         .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>()
-        ?.requestPermissions(alert: true, badge: false, sound: false);
+        ?.requestPermissions(alert: true, badge: false, sound: true);
   }
 
   Future<void> cancel() async {
@@ -114,6 +135,7 @@ class NotificationService {
   /// Zeigt/aktualisiert die Steuer-Benachrichtigung passend zum Zustand.
   Future<void> update(AppData data) async {
     if (!supported || !_initialized) return;
+    await _scheduleReminders(data);
     if (_isAndroid) {
       // Die native Seite liest den Zustand selbst aus den gespeicherten Daten.
       await _native.invokeMethod<void>('refresh');
@@ -174,4 +196,51 @@ class NotificationService {
           NotificationDetails(android: androidDetails, iOS: darwinDetails),
     );
   }
+
+  /// Plant die Erinnerungen an den Start der Zeiterfassung neu (siehe
+  /// [reminderTimes]). Erinnerungen für heute entfallen, sobald gestartet
+  /// wurde.
+  Future<void> _scheduleReminders(AppData data) async {
+    final now = DateTime.now();
+    final times = reminderTimes(data, now);
+    if (_isAndroid) {
+      // Nativ (AlarmManager): prüft beim Auslösen selbst, ob schon
+      // gestartet wurde – auch nach Start über die Benachrichtigung.
+      await _native.invokeMethod<void>('scheduleReminders',
+          times.map((t) => t.millisecondsSinceEpoch).toList());
+      return;
+    }
+    // Nach dem Start auch die bereits angezeigte Erinnerung von heute
+    // entfernen (cancel entfernt geplante und angezeigte).
+    final key = '${startedOn(data, now)}|'
+        '${times.map((t) => t.millisecondsSinceEpoch).join(',')}';
+    if (key == _scheduledReminders) return;
+    _scheduledReminders = key;
+    for (var i = 0; i < _reminderMaxCount; i++) {
+      await _plugin.cancel(id: _reminderIdBase + i);
+    }
+    const details = NotificationDetails(
+      android: AndroidNotificationDetails(_reminderChannelId, 'Erinnerung',
+          channelDescription: 'Erinnerung an den Start der Zeiterfassung'),
+      iOS: DarwinNotificationDetails(
+        categoryIdentifier: _categoryReminder,
+        presentSound: true,
+        presentBadge: false,
+      ),
+    );
+    for (var i = 0; i < times.length && i < _reminderMaxCount; i++) {
+      await _plugin.zonedSchedule(
+        id: _reminderIdBase + i,
+        // Absoluter Zeitpunkt; die lokale Uhrzeit wurde bereits berechnet.
+        scheduledDate: tz.TZDateTime.from(times[i], tz.UTC),
+        title: 'Zeiterfassung starten?',
+        body: 'Die Arbeitszeit wurde heute noch nicht gestartet.',
+        notificationDetails: details,
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+    }
+  }
+
+  /// Zuletzt geplante Erinnerungen (iOS), um unnötiges Neuplanen zu sparen.
+  String? _scheduledReminders;
 }
