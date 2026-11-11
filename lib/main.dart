@@ -25,6 +25,7 @@ Future<void> main(List<String> args) async {
   await NotificationService.instance.update(data);
   await TrayService.ensureInitialized();
   final state = AppState(repo, data)..sync.start();
+  await state.loadDeviceSettings();
   // Desktop: Steuerung über den Infobereich (Tray)
   await TrayService.instance.attach(state);
   runApp(

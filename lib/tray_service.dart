@@ -8,11 +8,13 @@ import 'app_state.dart';
 import 'balance.dart';
 import 'format.dart';
 import 'models.dart';
+import 'tray_icon_style.dart';
 
 /// Steuerung über den Infobereich (System-Tray) der Desktop-Version –
 /// das Gegenstück zur Benachrichtigung auf Android, ohne Animationen.
 ///
-/// - Symbol: laufend Uhr mit Pfeil (grün), pausiert Stoppuhr mit Pause (grau)
+/// - Symbol: laufend Uhr mit Pfeil (grün), pausiert Stoppuhr mit Pause (grau);
+///   unter Linux/Windows wahlweise einfarbig hell/dunkel ([TrayIconStyle])
 /// - Menü: „Derzeit“/„Pause“ und „Heute“ (minutengenau), Start/Pause,
 ///   Feierabend, Fenster öffnen, Beenden
 /// - Solange das Symbol aktiv ist, versteckt das Schließen des Fensters die
@@ -30,6 +32,10 @@ class TrayService with TrayListener, WindowListener {
           defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.macOS);
 
+  /// Darstellung wählbar ([TrayIconStyle]); macOS passt das Symbol selbst
+  /// der Menüleiste an.
+  static bool get iconStyleSupported => supported && !_isMacOS;
+
   static bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
   static bool get _isMacOS => defaultTargetPlatform == TargetPlatform.macOS;
 
@@ -41,7 +47,7 @@ class TrayService with TrayListener, WindowListener {
   AppState? _state;
   bool _active = false;
   bool _quitting = false;
-  bool? _iconRunning;
+  String? _icon;
 
   /// Zuletzt angezeigter Zustand; das Menü wird nur bei Änderungen neu
   /// gesetzt (die App meldet sich jede Sekunde, die Texte ändern sich
@@ -80,22 +86,19 @@ class TrayService with TrayListener, WindowListener {
     if (!m.enabled) {
       if (_active) {
         _active = false;
-        _iconRunning = null;
+        _icon = null;
         await trayManager.destroy();
       }
       await windowManager.setPreventClose(false);
       return;
     }
     _active = true;
-    if (_iconRunning != m.running) {
-      _iconRunning = m.running;
-      final name = m.running ? 'running' : 'paused';
+    final name = '${m.running ? 'running' : 'paused'}'
+        '${_isMacOS ? '_template' : m.iconStyle.suffix}';
+    if (_icon != name) {
+      _icon = name;
       await trayManager.setIcon(
-        _isWindows
-            ? 'assets/tray/$name.ico'
-            : _isMacOS
-                ? 'assets/tray/${name}_template.png'
-                : 'assets/tray/$name.png',
+        'assets/tray/$name.${_isWindows ? 'ico' : 'png'}',
         isTemplate: _isMacOS,
       );
     }
@@ -185,6 +188,7 @@ class TrayService with TrayListener, WindowListener {
 class _TrayModel {
   const _TrayModel({
     required this.enabled,
+    required this.iconStyle,
     required this.running,
     required this.finished,
     required this.status,
@@ -212,6 +216,7 @@ class _TrayModel {
     }
     return _TrayModel(
       enabled: data.settings.showNotification,
+      iconStyle: state.trayIconStyle,
       running: running != null,
       finished: running == null && state.stoppedToday,
       status: running != null ? 'Arbeitszeit läuft' : 'Pausiert',
@@ -237,6 +242,7 @@ class _TrayModel {
   }
 
   final bool enabled;
+  final TrayIconStyle iconStyle;
   final bool running;
   final bool finished;
   final String status;
@@ -247,6 +253,7 @@ class _TrayModel {
   bool operator ==(Object other) =>
       other is _TrayModel &&
       other.enabled == enabled &&
+      other.iconStyle == iconStyle &&
       other.running == running &&
       other.finished == finished &&
       other.status == status &&
@@ -255,5 +262,6 @@ class _TrayModel {
 
   @override
   int get hashCode =>
-      Object.hash(enabled, running, finished, status, current, today);
+      Object.hash(
+          enabled, iconStyle, running, finished, status, current, today);
 }

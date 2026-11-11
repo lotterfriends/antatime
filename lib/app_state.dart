@@ -8,6 +8,7 @@ import 'models.dart';
 import 'notification_service.dart';
 import 'repository.dart';
 import 'sync/sync_service.dart';
+import 'tray_icon_style.dart';
 
 class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState(this._repo, this.data, {SyncService? sync})
@@ -201,6 +202,20 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await NotificationService.instance.requestPermission();
     }
     await _syncNotification();
+  }
+
+  /// Darstellung des Tray-Symbols (nur dieses Gerät); beim Start mit
+  /// [loadDeviceSettings] geladen.
+  TrayIconStyle trayIconStyle = TrayIconStyle.color;
+
+  Future<void> loadDeviceSettings() async {
+    trayIconStyle = await _repo.loadTrayIconStyle();
+  }
+
+  Future<void> setTrayIconStyle(TrayIconStyle style) async {
+    trayIconStyle = style;
+    await _repo.saveTrayIconStyle(style);
+    notifyListeners();
   }
 
   /// Zeiterfassung beim Programmstart beginnen (nur dieses Gerät).

@@ -366,6 +366,8 @@ def status_icons():
 # Linux/Windows: weißes Symbol auf farbigem Grund (auf hellen und dunklen
 # Leisten lesbar), laufend Akzentfarbe, pausiert grau. macOS: schwarzes
 # Template-Symbol, das sich der Menüleiste anpasst.
+# Zusätzlich einfarbig ohne Grund für Linux/Windows (Einstellung „Symbol im
+# Infobereich“): *_light weiß für dunkle, *_dark schwarz für helle Leisten.
 TRAY_PAUSED_BG = '#757575'
 
 
@@ -417,6 +419,25 @@ def tray_icons(tmp):
              background=None)
         magick(os.path.join(tmp, f'tpl-{name}.png'), '-fill', 'black',
                '-colorize', '100', f'{d}/{name}_template.png')
+    tray_mono_icons(tmp, glyphs)
+
+
+def tray_mono_icons(tmp, glyphs):
+    """Einfarbige Tray-Symbole ohne Grund (weiß/schwarz), PNG und ICO."""
+    d = os.path.join(ROOT, 'assets/tray')
+    colors = {'light': 'white', 'dark': 'black'}
+    for name, (glyph, _) in glyphs.items():
+        for variant, color in colors.items():
+            def mono(size, scale, out):
+                icon(glyph, out, size, scale, background=None)
+                magick(out, '-fill', color, '-colorize', '100', out)
+            mono(64, 0.9, f'{d}/{name}_{variant}.png')
+            pngs = []
+            for s in (16, 20, 24, 32, 48, 64):
+                out = os.path.join(tmp, f'tray-{name}-{variant}-{s}.png')
+                mono(s, 0.94, out)
+                pngs.append(out)
+            magick(*pngs, f'{d}/{name}_{variant}.ico')
 
 
 def main():

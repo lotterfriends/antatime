@@ -7,6 +7,7 @@ import '../desktop/desktop_notifications.dart';
 import '../format.dart';
 import '../models.dart';
 import '../notification_service.dart';
+import '../tray_icon_style.dart';
 import '../tray_service.dart';
 import '../widgets/autostart_tile.dart';
 import '../widgets/backup_tiles.dart';
@@ -244,6 +245,19 @@ class SettingsScreen extends StatelessWidget {
               onChanged: (v) =>
                   state.updateSettings((x) => x.showNotification = v),
             ),
+            if (s.showNotification && TrayService.iconStyleSupported)
+              ListTile(
+                leading: const SizedBox(width: 24),
+                title: const Text('Darstellung des Symbols'),
+                subtitle: const Text('Einfarbig passt besser zu hellen '
+                    'bzw. dunklen Leisten'),
+                trailing: _TrayIconPreview(state.trayIconStyle),
+                onTap: () async {
+                  final v = await _pickTrayIconStyle(
+                      context, state.trayIconStyle);
+                  if (v != null) await state.setTrayIconStyle(v);
+                },
+              ),
           ],
           if (Autostart.instance.supported) ...[
             _Section('Programmstart'),
@@ -340,6 +354,76 @@ Future<double?> _askFactor(BuildContext context, double initial) {
       },
     ),
   );
+}
+
+Future<TrayIconStyle?> _pickTrayIconStyle(
+    BuildContext context, TrayIconStyle current) {
+  return showDialog<TrayIconStyle>(
+    context: context,
+    builder: (c) => SimpleDialog(
+      title: const Text('Symbol im Infobereich'),
+      children: [
+        RadioGroup<TrayIconStyle>(
+          groupValue: current,
+          onChanged: (v) => Navigator.pop(c, v),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final style in TrayIconStyle.values)
+                RadioListTile<TrayIconStyle>(
+                  value: style,
+                  title: Align(
+                    alignment: Alignment.centerLeft,
+                    child: _TrayIconPreview(style),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// Vorschau des Tray-Symbols in [style] auf einer passenden Leiste
+/// (einfarbig hell auf dunkel, einfarbig dunkel auf hell), laufend und
+/// pausiert.
+class _TrayIconPreview extends StatelessWidget {
+  const _TrayIconPreview(this.style);
+
+  final TrayIconStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final background = switch (style) {
+      TrayIconStyle.color => scheme.surfaceContainerHighest,
+      TrayIconStyle.light => const Color(0xFF2B2B2B),
+      TrayIconStyle.dark => const Color(0xFFE8E8E8),
+    };
+    Widget icon(String name) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: Image.asset('assets/tray/$name${style.suffix}.png',
+              width: 22, height: 22, filterQuality: FilterQuality.medium),
+        );
+    return Semantics(
+      label: style.label,
+      child: ExcludeSemantics(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [icon('running'), icon('paused')],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Ergebnis der Bundesland-Auswahl (`state == null` = keine Feiertage).

@@ -6,6 +6,7 @@ import 'package:shared_preferences_android/shared_preferences_android.dart';
 
 import 'auto_track.dart';
 import 'models.dart';
+import 'tray_icon_style.dart';
 import 'sync/cross_tab_lock.dart';
 import 'sync/sync_service.dart';
 
@@ -43,6 +44,9 @@ class Repository implements SyncStore {
   /// Zeiterfassung beim Programmstart beginnen (nur dieses Gerät, siehe
   /// [AutoTrack]).
   static const _kAutoTrack = 'autoTrack';
+
+  /// Darstellung des Tray-Symbols (nur dieses Gerät, siehe [TrayIconStyle]).
+  static const _kTrayIconStyle = 'trayIconStyle';
 
   /// Sync-Zustand (Code, Server, Snapshot), siehe lib/sync/.
   static const _kSync = 'sync';
@@ -131,6 +135,14 @@ class Repository implements SyncStore {
   Future<void> saveAutoTrack(AutoTrack mode) => mode == AutoTrack.off
       ? _prefs.remove(_kAutoTrack)
       : _prefs.setString(_kAutoTrack, mode.name);
+
+  Future<TrayIconStyle> loadTrayIconStyle() async =>
+      TrayIconStyle.byName(await _prefs.getString(_kTrayIconStyle));
+
+  Future<void> saveTrayIconStyle(TrayIconStyle style) =>
+      style == TrayIconStyle.color
+          ? _prefs.remove(_kTrayIconStyle)
+          : _prefs.setString(_kTrayIconStyle, style.name);
 
   /// Nach einem Start soll die Benachrichtigung wieder erscheinen.
   Future<void> clearStopped() => _prefs.remove(_kStoppedDay);
