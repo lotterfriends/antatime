@@ -26,19 +26,35 @@ const _reminderChannelId = 'reminder';
 const _actionStart = 'start';
 const _categoryReminder = 'reminder';
 
+/// Erinnerung beim Erreichen der Tagesstunden (iOS; Android nativ, siehe
+/// TargetReminder.kt).
+const _targetId = 200;
+const _actionFinish = 'finish';
+const _categoryTarget = 'target';
+
 /// Wird ausgeführt, wenn in der Benachrichtigung „Start“/„Pause“ gedrückt
 /// wird, während die App im Hintergrund ist oder beendet wurde.
 @pragma('vm:entry-point')
 Future<void> notificationActionBackground(NotificationResponse response) async {
-  if (response.actionId != _actionToggle && response.actionId != _actionStart) {
+  final action = response.actionId;
+  if (action != _actionToggle &&
+      action != _actionStart &&
+      action != _actionFinish) {
     return;
   }
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
   final repo = Repository();
   final data = await repo.load();
-  if (response.actionId == _actionToggle || data.running == null) {
-    Repository.toggle(data, DateTime.now());
+  final now = DateTime.now();
+  if (action == _actionFinish) {
+    if (data.running != null) {
+      Repository.toggle(data, now);
+      await repo.saveSessions(data.sessions);
+    }
+    await repo.markStopped(now);
+  } else if (action == _actionToggle || data.running == null) {
+    Repository.toggle(data, now);
     await repo.saveSessions(data.sessions);
   }
   await NotificationService.instance.init();
@@ -64,6 +80,9 @@ class NotificationService {
 
   /// „Starten“ aus der Erinnerung im Vordergrund (iOS).
   VoidCallback? onStart;
+
+  /// „Feierabend“ aus der Erinnerung an die Tagesstunden im Vordergrund (iOS).
+  VoidCallback? onFinish;
 
   /// Wird aufgerufen, wenn die native Benachrichtigung die Daten geändert
   /// hat (Android).
@@ -98,6 +117,9 @@ class NotificationService {
         DarwinNotificationCategory(_categoryReminder, actions: [
           DarwinNotificationAction.plain(_actionStart, 'Starten'),
         ]),
+        DarwinNotificationCategory(_categoryTarget, actions: [
+          DarwinNotificationAction.plain(_actionFinish, 'Feierabend'),
+        ]),
       ],
     );
     await _plugin.initialize(
@@ -105,6 +127,7 @@ class NotificationService {
       onDidReceiveNotificationResponse: (r) {
         if (r.actionId == _actionToggle) onToggle?.call();
         if (r.actionId == _actionStart) onStart?.call();
+        if (r.actionId == _actionFinish) onFinish?.call();
       },
       onDidReceiveBackgroundNotificationResponse: notificationActionBackground,
     );
@@ -136,6 +159,7 @@ class NotificationService {
   Future<void> update(AppData data) async {
     if (!supported || !_initialized) return;
     await _scheduleReminders(data);
+    await _scheduleTargetReminder(data);
     if (_isAndroid) {
       // Die native Seite liest den Zustand selbst aus den gespeicherten Daten.
       await _native.invokeMethod<void>('refresh');
@@ -243,4 +267,51 @@ class NotificationService {
 
   /// Zuletzt geplante Erinnerungen (iOS), um unnötiges Neuplanen zu sparen.
   String? _scheduledReminders;
+
+  /// Plant die Benachrichtigung beim Erreichen der Tagesstunden (siehe
+  /// [targetReachedAt]); bei Pause entfällt sie, beim Fortsetzen wird neu
+  /// geplant.
+  Future<void> _scheduleTargetReminder(AppData data) async {
+    final now = DateTime.now();
+    if (_isAndroid) {
+      // Nativ (AlarmManager): plant nach jedem Start/Pause selbst neu –
+      // auch über die Benachrichtigung bei geschlossener App.
+      await _native.invokeMethod<void>('scheduleTargetReminder', [
+        for (final e in targetReminderDays(data, now).entries)
+          '${dayKey(e.key)}=${e.value.inMilliseconds}',
+      ]);
+      return;
+    }
+    final at = targetReachedAt(data, now);
+    final previous = _scheduledTarget;
+    if (_targetPlanned && at == previous) return;
+    _targetPlanned = true;
+    _scheduledTarget = at;
+    // Bereits angezeigte Benachrichtigung stehen lassen (cancel entfernt
+    // auch angezeigte).
+    final shown = previous != null && !previous.isAfter(now);
+    if (!(at == null && shown)) await _plugin.cancel(id: _targetId);
+    if (at == null) return;
+    final target = BalanceCalculator(data, now).statsFor(now).target;
+    await _plugin.zonedSchedule(
+      id: _targetId,
+      scheduledDate: tz.TZDateTime.from(at, tz.UTC),
+      title: 'Tagesstunden erreicht',
+      body: 'Heute ${formatDuration(target)} h gearbeitet – Feierabend?',
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(_reminderChannelId, 'Erinnerung',
+            channelDescription: 'Erinnerung an den Start der Zeiterfassung'),
+        iOS: DarwinNotificationDetails(
+          categoryIdentifier: _categoryTarget,
+          presentSound: true,
+          presentBadge: false,
+        ),
+      ),
+      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+    );
+  }
+
+  /// Zuletzt geplanter Zeitpunkt (iOS), um unnötiges Neuplanen zu sparen.
+  DateTime? _scheduledTarget;
+  bool _targetPlanned = false;
 }

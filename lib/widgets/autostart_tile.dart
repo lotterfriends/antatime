@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../desktop/autostart.dart';
-import '../desktop/start_prompt.dart';
+import '../desktop/desktop_notifications.dart';
 
 /// Schalter „Mit dem System starten“ (Desktop). Der Zustand wird nicht in den
 /// Einstellungen gespeichert, sondern beim System abgefragt – er gilt nur für
@@ -30,7 +30,7 @@ class _AutostartTileState extends State<AutostartTile> {
     String? error;
     try {
       await Autostart.instance.setEnabled(value);
-      if (value) await StartPrompt.instance.requestPermission();
+      if (value) await DesktopNotifications.instance.requestPermission();
     } on Exception catch (e) {
       error = e.toString();
     }

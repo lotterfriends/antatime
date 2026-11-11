@@ -6,7 +6,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app_state.dart';
 import 'desktop/autostart.dart';
-import 'desktop/start_prompt.dart';
+import 'desktop/desktop_notifications.dart';
 import 'notification_service.dart';
 import 'repository.dart';
 import 'screens/absences_screen.dart';
@@ -33,6 +33,8 @@ Future<void> main(List<String> args) async {
       child: const AnTaTimeApp(),
     ),
   );
+  // Desktop: Benachrichtigung beim Erreichen der Tagesstunden
+  await DesktopNotifications.instance.watchTarget(state);
   if (autostarted) await _afterAutostart(state);
 }
 
@@ -48,7 +50,7 @@ Future<void> _afterAutostart(AppState state) async {
       await windowManager.show();
     }
   }
-  await StartPrompt.instance.show(state);
+  await DesktopNotifications.instance.show(state);
 }
 
 class AnTaTimeApp extends StatelessWidget {

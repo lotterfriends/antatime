@@ -17,6 +17,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     NotificationService.instance.onStart = () {
       if (!isRunning) toggle();
     };
+    NotificationService.instance.onFinish = finishDay;
     NotificationService.instance.onDataChanged = reload;
     this.sync.onRemoteData = _onRemoteData;
   }
@@ -194,7 +195,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     });
     _changed();
     if (data.settings.showNotification ||
-        data.settings.reminderMinutes != null) {
+        data.settings.reminderMinutes != null ||
+        data.settings.targetReminder) {
       await NotificationService.instance.requestPermission();
     }
     await _syncNotification();

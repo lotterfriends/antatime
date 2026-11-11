@@ -133,12 +133,16 @@ object ReminderScheduler {
     }
 }
 
-/** Auslösen der Erinnerung sowie Neuplanung nach Neustart/Update/Zeitänderung. */
+/** Auslösen der Erinnerungen (Start, Tagesstunden) sowie Neuplanung nach Neustart/Update/Zeitänderung. */
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ReminderScheduler.ACTION_FIRE -> ReminderScheduler.fire(context)
-            else -> ReminderScheduler.scheduleNext(context)
+            TargetReminder.ACTION_FIRE -> TargetReminder.fire(context)
+            else -> {
+                ReminderScheduler.scheduleNext(context)
+                TargetReminder.schedule(context)
+            }
         }
     }
 }

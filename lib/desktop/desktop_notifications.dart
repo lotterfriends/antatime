@@ -5,21 +5,29 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../app_state.dart';
+import '../format.dart';
+import '../reminder.dart';
 
-/// Desktop: Nach dem Autostart per Benachrichtigung fragen, ob die
-/// Zeiterfassung beginnen soll – mit „Jetzt starten“-Knopf.
+/// Desktop-Benachrichtigungen:
 ///
-/// Ein Klick auf die Benachrichtigung selbst öffnet das Fenster. Wird die
-/// Arbeitszeit anderweitig gestartet (Fenster, Infobereich, Sync), wird die
-/// Benachrichtigung entfernt.
-class StartPrompt {
-  StartPrompt._();
-  static final instance = StartPrompt._();
+///  * Nach dem Autostart fragen, ob die Zeiterfassung beginnen soll – mit
+///    „Jetzt starten“-Knopf. Wird die Arbeitszeit anderweitig gestartet
+///    (Fenster, Infobereich, Sync), wird die Frage entfernt.
+///  * Sobald heute die Tagesstunden erreicht sind, darauf hinweisen – mit
+///    „Feierabend“-Knopf.
+///
+/// Ein Klick auf die Benachrichtigung selbst öffnet das Fenster.
+class DesktopNotifications {
+  DesktopNotifications._();
+  static final instance = DesktopNotifications._();
 
   static const _id = 2;
+  static const _targetId = 3;
   static const _actionStart = 'start';
+  static const _actionFinish = 'finish';
   static const _payloadOpen = 'open';
   static const _category = 'startPrompt';
+  static const _categoryTarget = 'target';
 
   final _plugin = FlutterLocalNotificationsPlugin();
   AppState? _state;
@@ -44,6 +52,9 @@ class StartPrompt {
           notificationCategories: [
             DarwinNotificationCategory(_category, actions: [
               DarwinNotificationAction.plain(_actionStart, 'Jetzt starten'),
+            ]),
+            DarwinNotificationCategory(_categoryTarget, actions: [
+              DarwinNotificationAction.plain(_actionFinish, 'Feierabend'),
             ]),
           ],
         ),
@@ -122,6 +133,66 @@ class StartPrompt {
     }
   }
 
+  /// Beobachtet die Arbeitszeit, um beim Erreichen der Tagesstunden zu
+  /// benachrichtigen (siehe [targetReachedAt]).
+  Future<void> watchTarget(AppState state) async {
+    if (!supported) return;
+    _state = state;
+    state.addListener(_checkTarget);
+    _checkTarget();
+    if (state.data.settings.targetReminder) await requestPermission();
+  }
+
+  /// Erwarteter Zeitpunkt, zu dem das Soll erreicht wird, solange die
+  /// Arbeitszeit läuft und es noch nicht erreicht ist.
+  DateTime? _targetAt;
+
+  void _checkTarget() {
+    final state = _state;
+    if (state == null) return;
+    final at = targetReachedAt(state.data, state.now);
+    final expected = _targetAt;
+    _targetAt = at;
+    // Nur benachrichtigen, wenn das Soll während des Laufens erreicht wurde
+    // (nicht nach Pause, Ausschalten oder beim Programmstart).
+    if (at == null &&
+        expected != null &&
+        !state.now.isBefore(expected) &&
+        state.isRunning &&
+        state.data.settings.targetReminder) {
+      _showTarget(state);
+    }
+  }
+
+  Future<void> _showTarget(AppState state) async {
+    final target = state.calc.statsFor(state.now).target;
+    try {
+      await _init();
+      await _plugin.show(
+        id: _targetId,
+        title: 'Tagesstunden erreicht',
+        body: 'Heute ${formatDuration(target)} h gearbeitet – Feierabend?',
+        payload: _payloadOpen,
+        notificationDetails: const NotificationDetails(
+          linux: LinuxNotificationDetails(
+            actions: [
+              LinuxNotificationAction(key: _actionFinish, label: 'Feierabend'),
+            ],
+            category: LinuxNotificationCategory.presence,
+          ),
+          macOS: DarwinNotificationDetails(categoryIdentifier: _categoryTarget),
+          windows: WindowsNotificationDetails(
+            actions: [
+              WindowsAction(content: 'Feierabend', arguments: _actionFinish),
+            ],
+          ),
+        ),
+      );
+    } on Exception catch (e) {
+      debugPrint('Tagesstunden: $e');
+    }
+  }
+
   void _onStateChanged() {
     if (_state?.isRunning == true) _dismiss();
   }
@@ -145,6 +216,8 @@ class StartPrompt {
     if (r.actionId == _actionStart) {
       if (!state.isRunning) await state.toggle();
       await _dismiss();
+    } else if (r.actionId == _actionFinish) {
+      await state.finishDay();
     } else {
       await _dismiss();
       await windowManager.show();

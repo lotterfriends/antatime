@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../desktop/autostart.dart';
+import '../desktop/desktop_notifications.dart';
 import '../format.dart';
 import '../models.dart';
 import '../notification_service.dart';
@@ -171,8 +172,10 @@ class SettingsScreen extends StatelessWidget {
               }
             },
           ),
-          if (NotificationService.instance.supported) ...[
+          if (NotificationService.instance.supported ||
+              DesktopNotifications.supported)
             _Section('Benachrichtigung'),
+          if (NotificationService.instance.supported) ...[
             SwitchListTile(
               secondary: const Icon(Icons.notifications_outlined),
               title: const Text('Start/Pause in der Benachrichtigung'),
@@ -215,6 +218,20 @@ class SettingsScreen extends StatelessWidget {
                 },
               ),
           ],
+          if (NotificationService.instance.supported ||
+              DesktopNotifications.supported)
+            SwitchListTile(
+              secondary: const Icon(Icons.flag_outlined),
+              title: const Text('Erinnerung bei Erreichen der Tagesstunden'),
+              subtitle: Text('Benachrichtigen, sobald an Arbeitstagen '
+                  '${formatDuration(Duration(minutes: s.dailyTargetMinutes))} h '
+                  'gearbeitet sind (nicht an Feiertagen und bei Abwesenheit)'),
+              value: s.targetReminder,
+              onChanged: (v) async {
+                await state.updateSettings((x) => x.targetReminder = v);
+                if (v) await DesktopNotifications.instance.requestPermission();
+              },
+            ),
           if (TrayService.supported) ...[
             _Section('Infobereich'),
             SwitchListTile(

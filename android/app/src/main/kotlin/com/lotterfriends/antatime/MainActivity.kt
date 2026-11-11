@@ -31,6 +31,13 @@ class MainActivity : FlutterActivity() {
                         ReminderScheduler.setTimes(applicationContext, times)
                         result.success(null)
                     }
+                    "scheduleTargetReminder" -> {
+                        val targets = (call.arguments as? List<*>)
+                            ?.mapNotNull { it as? String }
+                            ?: emptyList()
+                        TargetReminder.setTargets(applicationContext, targets)
+                        result.success(null)
+                    }
                     "cancel" -> {
                         TrackingNotification.cancel(applicationContext)
                         result.success(null)

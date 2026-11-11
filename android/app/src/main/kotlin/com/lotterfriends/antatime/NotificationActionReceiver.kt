@@ -21,6 +21,9 @@ class NotificationActionReceiver : BroadcastReceiver() {
             else -> return
         }
         if (store.startedToday()) ReminderScheduler.cancelShown(context)
+        if (intent.action == ACTION_STOP) TargetReminder.cancelShown(context)
+        // Nach Start/Pause den Alarm für die Tagesstunden neu stellen.
+        TargetReminder.schedule(context)
         TrackingNotification.refresh(context)
         // Geöffnete App sofort aktualisieren.
         MainActivity.notifyDataChanged()
