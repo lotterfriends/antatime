@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/widgets.dart';
 
+import 'auto_track.dart';
 import 'balance.dart';
 import 'models.dart';
 import 'notification_service.dart';
@@ -200,6 +201,37 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await NotificationService.instance.requestPermission();
     }
     await _syncNotification();
+  }
+
+  /// Zeiterfassung beim Programmstart beginnen (nur dieses Gerät).
+  Future<AutoTrack> autoTrack() => _repo.loadAutoTrack();
+
+  Future<void> setAutoTrack(AutoTrack mode) async {
+    await _repo.saveAutoTrack(mode);
+    notifyListeners();
+  }
+
+  /// Beim Programmstart: Zeiterfassung beginnen, falls so eingestellt
+  /// (siehe [shouldAutoTrack]). Gibt `true` zurück, wenn sie gestartet wurde.
+  Future<bool> autoStartTracking() async {
+    final mode = await _repo.loadAutoTrack();
+    if (mode == AutoTrack.off) return false;
+    final started = await _repo.exclusive(() async {
+      data = await _repo.load();
+      now = DateTime.now();
+      stoppedToday = await _repo.stoppedOn(now);
+      if (!shouldAutoTrack(mode, data, now, stoppedToday: stoppedToday)) {
+        return false;
+      }
+      Repository.toggle(data, now);
+      await _repo.saveSessions(data.sessions);
+      await _repo.clearStopped();
+      stoppedToday = false;
+      return true;
+    });
+    _changed();
+    if (started) await _syncNotification();
+    return started;
   }
 
   /// Alle Daten und Einstellungen als JSON-Text.

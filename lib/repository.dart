@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_android/shared_preferences_android.dart';
 
+import 'auto_track.dart';
 import 'models.dart';
 import 'sync/cross_tab_lock.dart';
 import 'sync/sync_service.dart';
@@ -38,6 +39,10 @@ class Repository implements SyncStore {
   /// Tag (yyyy-MM-dd), an dem in der Benachrichtigung „Feierabend“ gedrückt
   /// wurde. Bis zum nächsten Start bleibt die Benachrichtigung dann aus.
   static const _kStoppedDay = 'notificationStoppedDay';
+
+  /// Zeiterfassung beim Programmstart beginnen (nur dieses Gerät, siehe
+  /// [AutoTrack]).
+  static const _kAutoTrack = 'autoTrack';
 
   /// Sync-Zustand (Code, Server, Snapshot), siehe lib/sync/.
   static const _kSync = 'sync';
@@ -119,6 +124,13 @@ class Repository implements SyncStore {
     await saveAbsences(data.absences);
     await saveSettings(data.settings);
   }
+
+  Future<AutoTrack> loadAutoTrack() async =>
+      AutoTrack.byName(await _prefs.getString(_kAutoTrack));
+
+  Future<void> saveAutoTrack(AutoTrack mode) => mode == AutoTrack.off
+      ? _prefs.remove(_kAutoTrack)
+      : _prefs.setString(_kAutoTrack, mode.name);
 
   /// Nach einem Start soll die Benachrichtigung wieder erscheinen.
   Future<void> clearStopped() => _prefs.remove(_kStoppedDay);

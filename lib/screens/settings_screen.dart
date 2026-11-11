@@ -245,7 +245,10 @@ class SettingsScreen extends StatelessWidget {
                   state.updateSettings((x) => x.showNotification = v),
             ),
           ],
-          if (Autostart.instance.supported) const AutostartTile(),
+          if (Autostart.instance.supported) ...[
+            _Section('Programmstart'),
+            const AutostartTile(),
+          ],
           _Section('Synchronisation'),
           const SyncTiles(),
           _Section('Daten'),

@@ -35,11 +35,15 @@ Future<void> main(List<String> args) async {
   );
   // Desktop: Benachrichtigung beim Erreichen der Tagesstunden
   await DesktopNotifications.instance.watchTarget(state);
+  // Desktop: Zeiterfassung beim Programmstart beginnen, falls eingestellt –
+  // vor der Startfrage, die dann entfällt.
+  if (Autostart.instance.supported) await state.autoStartTracking();
   if (autostarted) await _afterAutostart(state);
 }
 
 /// Nach dem Start mit dem System: nur im Infobereich bleiben (falls aktiv)
-/// und per Benachrichtigung fragen, ob die Zeiterfassung beginnen soll.
+/// und per Benachrichtigung fragen, ob die Zeiterfassung beginnen soll
+/// (entfällt, wenn sie bereits automatisch gestartet wurde).
 ///
 /// Linux/Windows zeigen das Fenster bei `--autostart` nicht von selbst an.
 Future<void> _afterAutostart(AppState state) async {

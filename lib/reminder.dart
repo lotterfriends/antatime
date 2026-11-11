@@ -35,6 +35,10 @@ List<DateTime> reminderTimes(AppData data, DateTime now, {int days = 30}) {
   return result;
 }
 
+/// Ist [day] ein Arbeitstag ab Erfassungsbeginn ohne Feiertag/Abwesenheit?
+bool isWorkday(AppData data, DateTime day) =>
+    _remindOn(BalanceCalculator(data, day), dayOf(day));
+
 /// Arbeitstag ab Erfassungsbeginn ohne Feiertag/Abwesenheit?
 bool _remindOn(BalanceCalculator calc, DateTime day) =>
     calc.settings.workdays.contains(day.weekday) &&
