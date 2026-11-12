@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
@@ -267,9 +268,44 @@ class SettingsScreen extends StatelessWidget {
           const SyncTiles(),
           _Section('Daten'),
           const BackupTiles(),
-          const SizedBox(height: 24),
+          const _VersionInfo(),
         ],
       ),
+    );
+  }
+}
+
+/// Versionsnummer der App (aus der pubspec.yaml) am Ende der Einstellungen.
+class _VersionInfo extends StatefulWidget {
+  const _VersionInfo();
+
+  @override
+  State<_VersionInfo> createState() => _VersionInfoState();
+}
+
+class _VersionInfoState extends State<_VersionInfo> {
+  late final Future<PackageInfo> _info = PackageInfo.fromPlatform();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<PackageInfo>(
+      future: _info,
+      builder: (context, snap) {
+        final info = snap.data;
+        final text = info == null
+            ? ''
+            : 'AnTaTime ${info.version}'
+                '${info.buildNumber.isEmpty ? '' : ' (${info.buildNumber})'}';
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant),
+          ),
+        );
+      },
     );
   }
 }
