@@ -8,6 +8,7 @@ import 'models.dart';
 import 'notification_service.dart';
 import 'repository.dart';
 import 'sync/sync_service.dart';
+import 'sync/tab_coordination.dart';
 import 'tray_icon_style.dart';
 
 class AppState extends ChangeNotifier with WidgetsBindingObserver {
@@ -22,7 +23,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     NotificationService.instance.onFinish = finishDay;
     NotificationService.instance.onDataChanged = reload;
     this.sync.onRemoteData = _onRemoteData;
+    // Im Browser: Änderungen anderer Tabs sofort übernehmen (und, falls
+    // dieser Tab die Sync-Verbindung hält, gleich weitergeben).
+    _tabChanges = otherTabChanges().listen((_) {
+      _tabReload?.cancel();
+      _tabReload = Timer(const Duration(milliseconds: 200), reload);
+    });
   }
+
+  StreamSubscription<void>? _tabChanges;
+  Timer? _tabReload;
 
   final Repository _repo;
   AppData data;
@@ -57,6 +67,9 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       // Danach die Erinnerungen neu planen (neuer Tag, Zeitraum verlängern).
       reload().then((_) => _syncNotification());
       sync.resume();
+    } else if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      sync.pause();
     }
   }
 
@@ -267,6 +280,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _ticker.cancel();
+    _tabChanges?.cancel();
+    _tabReload?.cancel();
     sync.dispose();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();

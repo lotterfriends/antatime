@@ -19,6 +19,17 @@ class SyncOp {
 
 const protocolVersion = 1;
 
+/// Fehlercodes des Servers (siehe `ErrorCode` in protocol.ts).
+class SyncErrorCode {
+  static const badRequest = 1;
+  static const unsupportedVersion = 2;
+  static const tooLarge = 3;
+  static const rateLimited = 4;
+  static const tooManyConnections = 5;
+  static const internal = 6;
+  static const quotaExceeded = 7;
+}
+
 class WireRecord {
   WireRecord(this.key, this.data, [this.seq = 0]);
   final Uint8List key;

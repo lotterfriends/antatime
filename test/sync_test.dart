@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -229,4 +230,72 @@ void main() {
       expect(back.records['s:a']!.content, st.records['s:a']!.content);
     });
   });
+
+  group('Verbindung', () {
+    test('Wartezeit hängt vom Grund der Trennung ab', () {
+      Duration d(int attempt, [int? code, Object? reason]) =>
+          SyncService.retryDelay(attempt, code, reason);
+      expect(d(0), const Duration(seconds: 1));
+      expect(d(3), const Duration(seconds: 10));
+      expect(d(99), const Duration(seconds: 30));
+      // Dauerhafte Fehler: nicht im Sekundentakt wiederholen.
+      expect(d(0, SyncErrorCode.quotaExceeded), const Duration(minutes: 5));
+      expect(d(0, SyncErrorCode.unsupportedVersion), const Duration(minutes: 5));
+      expect(d(0, SyncErrorCode.rateLimited), const Duration(minutes: 1));
+      // Server lehnt den Verbindungsaufbau wegen Limits ab:
+      expect(d(0, null, 'HTTP status code: 429'), const Duration(minutes: 1));
+      expect(d(0, SyncErrorCode.internal), const Duration(seconds: 1));
+    });
+
+    test('Kurze Unterbrechung erscheint nicht als Offline', () async {
+      final sync = SyncService(_MemoryStore(),
+          networkChanges: () => const Stream.empty());
+      // Port 1: Verbindung wird sofort abgelehnt.
+      await sync.enable(url: 'http://127.0.0.1:1', code: SyncCrypto.generateCode(), join: false);
+      final sw = Stopwatch()..start();
+      while (sync.status != SyncStatus.offline && sw.elapsed.inSeconds < 5) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(sync.status, SyncStatus.offline);
+      expect(sync.displayStatus, SyncStatus.connecting);
+      await sync.disable();
+      expect(sync.displayStatus, SyncStatus.off);
+      sync.dispose();
+    });
+
+    test('Ohne Leader-Rolle verbindet sich ein Tab nicht selbst', () async {
+      final waiting = Completer<void Function()>();
+      final sync = SyncService(_MemoryStore(),
+          networkChanges: () => const Stream.empty(),
+          leaderLock: (_) => waiting.future);
+      await sync.enable(url: 'http://127.0.0.1:1', code: SyncCrypto.generateCode(), join: false);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(sync.status, SyncStatus.otherTab);
+      expect(sync.displayStatus, SyncStatus.otherTab);
+      // Beim Beenden darf die (spät gewährte) Rolle nicht hängen bleiben.
+      var released = false;
+      await sync.disable();
+      waiting.complete(() => released = true);
+      await Future<void>.delayed(Duration.zero);
+      expect(released, isTrue);
+      expect(sync.status, SyncStatus.off);
+      sync.dispose();
+    });
+  });
+}
+
+class _MemoryStore implements SyncStore {
+  String? _state;
+  AppData _data = sample();
+
+  @override
+  Future<T> exclusive<T>(Future<T> Function() action) => action();
+  @override
+  Future<AppData> load() async => _data;
+  @override
+  Future<void> saveAll(AppData data) async => _data = data;
+  @override
+  Future<String?> loadSyncState() async => _state;
+  @override
+  Future<void> saveSyncState(String? json) async => _state = json;
 }

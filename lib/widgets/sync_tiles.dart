@@ -39,11 +39,12 @@ class SyncTiles extends StatelessWidget {
               )
             else ...[
               ListTile(
-                leading: Icon(_statusIcon(sync.status)),
-                title: Text(_statusText(sync.status)),
+                leading: Icon(_statusIcon(sync.displayStatus)),
+                title: Text(_statusText(sync.displayStatus)),
                 subtitle: Text([
                   SyncService.wsUri(sync.url!).host,
-                  if (sync.status == SyncStatus.offline && sync.error != null)
+                  if (sync.displayStatus == SyncStatus.offline &&
+                      sync.error != null)
                     sync.error!,
                 ].join(' · ')),
               ),
@@ -66,13 +67,14 @@ class SyncTiles extends StatelessWidget {
   }
 
   static IconData _statusIcon(SyncStatus s) => switch (s) {
-        SyncStatus.online => Icons.cloud_done_outlined,
+        SyncStatus.online || SyncStatus.otherTab => Icons.cloud_done_outlined,
         SyncStatus.connecting => Icons.cloud_sync_outlined,
         SyncStatus.offline || SyncStatus.off => Icons.cloud_off_outlined,
       };
 
   static String _statusText(SyncStatus s) => switch (s) {
         SyncStatus.online => 'Synchronisiert',
+        SyncStatus.otherTab => 'Synchronisiert über einen anderen Tab',
         SyncStatus.connecting => 'Verbinde …',
         SyncStatus.offline => 'Offline – Änderungen werden später übertragen',
         SyncStatus.off => 'Aus',

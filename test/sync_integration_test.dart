@@ -4,6 +4,7 @@
 //   SYNC_TEST_URL=http://127.0.0.1:18080 flutter test test/sync_integration_test.dart
 //
 // Ohne SYNC_TEST_URL wird der Test übersprungen.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:antatime/models.dart';
@@ -43,14 +44,18 @@ class FakeStorage implements SyncStore {
 
 /// Eine offene App (ein Gerät oder ein Browser-Tab).
 class FakeDevice {
-  FakeDevice(this.name, [FakeStorage? sharedWith])
+  FakeDevice(this.name, [FakeStorage? sharedWith, this.tabLock])
       : storage = sharedWith ?? FakeStorage() {
     sync.onRemoteData = (d) => shown = d;
   }
 
   final String name;
   final FakeStorage storage;
-  late final sync = SyncService(storage);
+
+  /// Im Browser: gemeinsame Sperre, wer die Verbindung hält (Web Locks).
+  final FakeTabLock? tabLock;
+  late final sync = SyncService(storage,
+      networkChanges: () => const Stream.empty(), leaderLock: tabLock?.call);
 
   /// Was die Oberfläche dieser App gerade anzeigt.
   AppData? shown;
@@ -65,6 +70,21 @@ class FakeDevice {
       await storage.saveAll(d);
     });
     sync.localChanged();
+  }
+}
+
+/// Wie `navigator.locks.request`: Wer zuerst fragt, bekommt die Sperre, die
+/// anderen warten der Reihe nach.
+class FakeTabLock {
+  Future<void> _queue = Future.value();
+
+  Future<void Function()> call(String name) {
+    final prev = _queue;
+    final released = Completer<void>();
+    _queue = prev.then((_) => released.future);
+    return prev.then((_) => () {
+          if (!released.isCompleted) released.complete();
+        });
   }
 }
 
@@ -199,6 +219,40 @@ void main() {
     expect(phone.sync.enabled, isTrue);
 
     for (final d in [phone, tab1, tab2]) {
+      d.sync.dispose();
+    }
+  }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
+  test('Mehrere Tabs teilen sich eine Verbindung', () async {
+    final code = SyncCrypto.generateCode();
+    final lock = FakeTabLock();
+    final phone = FakeDevice('Handy');
+    final tab1 = FakeDevice('Tab 1', null, lock);
+    final tab2 = FakeDevice('Tab 2', tab1.storage, lock);
+
+    await phone.sync.enable(url: url!, code: code, join: false);
+    await tab1.sync.enable(url: url, code: code, join: true);
+    await waitFor(() => tab1.sync.status == SyncStatus.online, reason: 'Tab 1');
+    tab2.sync.localChanged();
+    await waitFor(() => tab2.sync.status == SyncStatus.otherTab,
+        reason: 'Tab 2 wartet');
+
+    // Änderung in Tab 2 sendet Tab 1 (ausgelöst durch das storage-Event).
+    await tab2.edit((d) => d.sessions.add(WorkSession(id: 't2', start: DateTime.now())));
+    tab1.sync.localChanged();
+    await waitFor(() => phone.data.running?.id == 't2', reason: 'Handy');
+
+    // Änderung am Handy landet über Tab 1 im gemeinsamen Speicher.
+    await phone.edit((d) => d.running!.end = DateTime.now());
+    await waitFor(() => tab2.data.running == null, reason: 'gemeinsamer Speicher');
+
+    // Tab 1 wird geschlossen: Tab 2 übernimmt die Verbindung.
+    tab1.sync.dispose();
+    await waitFor(() => tab2.sync.status == SyncStatus.online, reason: 'Tab 2 übernimmt');
+    await phone.edit((d) => d.sessions.add(WorkSession(id: 'p', start: DateTime.now())));
+    await waitFor(() => tab2.data.running?.id == 'p', reason: 'Tab 2 empfängt');
+
+    for (final d in [phone, tab2]) {
       d.sync.dispose();
     }
   }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);

@@ -8,9 +8,11 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 
 import '../models.dart';
 import 'hosting_server.dart';
+import 'network_events.dart';
 import 'sync_crypto.dart';
 import 'sync_protocol.dart';
 import 'sync_records.dart';
+import 'tab_coordination.dart';
 
 /// Speicherzugriff, den der Sync braucht (umgesetzt vom Repository).
 abstract class SyncStore {
@@ -23,7 +25,16 @@ abstract class SyncStore {
   Future<void> saveSyncState(String? json);
 }
 
-enum SyncStatus { off, connecting, online, offline }
+enum SyncStatus {
+  off,
+  connecting,
+  online,
+  offline,
+
+  /// Im Browser: Ein anderer Tab hält die Verbindung, dieser Tab bekommt
+  /// dessen Änderungen über den gemeinsamen Speicher.
+  otherTab,
+}
 
 /// Optionale Synchronisation über einen AnTaTime-Server.
 ///
@@ -33,7 +44,13 @@ enum SyncStatus { off, connecting, online, offline }
 /// Änderungen werden als PUSH gesendet. Alles ist Ende-zu-Ende-verschlüsselt
 /// (siehe [SyncCrypto]).
 class SyncService extends ChangeNotifier {
-  SyncService(this._store, {this.onRemoteData});
+  SyncService(
+    this._store, {
+    this.onRemoteData,
+    Stream<void> Function()? networkChanges,
+    FutureOr<void Function()> Function(String name)? leaderLock,
+  })  : _networkChanges = networkChanges ?? platformNetworkChanges,
+        _leaderLock = leaderLock ?? acquireSyncLeadership;
 
   /// Standard-Server, z. B. `flutter build web --dart-define=SYNC_URL=…`.
   static const defaultUrl = String.fromEnvironment('SYNC_URL');
@@ -44,11 +61,36 @@ class SyncService extends ChangeNotifier {
       defaultUrl.isNotEmpty ? defaultUrl : (hostingServerUrl() ?? '');
 
   static const _maxPerPush = 200;
-  static const _pingAfter = Duration(seconds: 20);
-  static const _deadAfter = Duration(seconds: 45);
+
+  /// Ohne Daten vom Server wird nach dieser Zeit ein PING gesendet …
+  static const _pingAfter = Duration(seconds: 10);
+
+  /// … und ohne Antwort darauf die Verbindung aufgegeben.
+  static const _probeTimeout = Duration(seconds: 6);
+  static const _deadAfter = Duration(seconds: 25);
+  static const _checkEvery = Duration(seconds: 2);
+
+  /// Erst nach so langer stabiler Verbindung beginnt der Backoff von vorn.
+  static const _stableAfter = Duration(seconds: 60);
+
+  /// So lange erscheint eine Unterbrechung noch nicht als „Offline“.
+  static const offlineGrace = Duration(seconds: 5);
+
+  /// War die App länger im Hintergrund, ist die Verbindung meist tot
+  /// (Energiesparen, NAT-Timeouts): beim Zurückkehren gleich neu verbinden.
+  static const _reconnectAfterPause = Duration(seconds: 30);
   static const _backoff = [1, 2, 5, 10, 20, 30];
 
+  /// Server ablehnend wegen Limits: nicht sofort erneut versuchen.
+  static const _limitedRetry = Duration(seconds: 60);
+
+  /// Fehler, die sich nicht von selbst beheben (Kontingent voll, zu alte App).
+  static const _permanentRetry = Duration(minutes: 5);
+  static const _leaderLockName = 'antatime-sync-leader';
+
   final SyncStore _store;
+  final Stream<void> Function() _networkChanges;
+  final FutureOr<void Function()> Function(String name) _leaderLock;
 
   /// Wird aufgerufen, nachdem Änderungen anderer Geräte gespeichert wurden.
   void Function(AppData data)? onRemoteData;
@@ -65,6 +107,18 @@ class SyncService extends ChangeNotifier {
 
   bool get enabled => code != null;
 
+  /// Status für die Anzeige: Kurze Unterbrechungen, die sich gleich von
+  /// selbst beheben, erscheinen als „Verbinde …“ statt als „Offline“.
+  SyncStatus get displayStatus {
+    final lost = _onlineLostAt;
+    if (status == SyncStatus.offline &&
+        lost != null &&
+        DateTime.now().difference(lost) < offlineGrace) {
+      return SyncStatus.connecting;
+    }
+    return status;
+  }
+
   SyncCrypto? _crypto;
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _sub;
@@ -73,7 +127,22 @@ class SyncService extends ChangeNotifier {
   int _attempt = 0;
   Timer? _retryTimer;
   Timer? _pingTimer;
+  Timer? _stableTimer;
+  Timer? _graceTimer;
   DateTime _lastRx = DateTime.now();
+
+  /// Zeitpunkt des unbeantworteten PINGs, `null` = keiner offen.
+  DateTime? _probeSentAt;
+
+  /// Fehlercode, den der Server vor dem Trennen geschickt hat.
+  int? _serverErrorCode;
+
+  /// Seit wann die Verbindung fehlt (für [displayStatus]).
+  DateTime? _onlineLostAt;
+  DateTime? _pausedAt;
+  StreamSubscription<void>? _netSub;
+  void Function()? _releaseLeader;
+  int _leaderRequest = 0;
   int _reqId = 0;
   ({int reqId, List<(String, int)> sent})? _inflight;
   Completer<void>? _deleteDone;
@@ -144,15 +213,16 @@ class SyncService extends ChangeNotifier {
       _localQueued = false;
       final stored = await _loadState();
       if (!await _followStoredState(stored) || stored == null) return;
-      final changed = await _store.exclusive(() async {
+      final pending = await _store.exclusive(() async {
         final data = await _store.load();
         final st = await _loadState();
         if (st == null) return false;
-        if (st.diffLocal(recordsOf(data)) == 0) return false;
-        await _saveState(st);
-        return true;
+        if (st.diffLocal(recordsOf(data)) > 0) await _saveState(st);
+        // Auch ohne neue Änderung: Ein anderer Tab kann Änderungen vorgemerkt
+        // haben, die nur dieser Tab (mit der Verbindung) senden kann.
+        return st.pending.isNotEmpty;
       });
-      if (changed) _schedulePush();
+      if (pending) _schedulePush();
     });
   }
 
@@ -172,19 +242,47 @@ class SyncService extends ChangeNotifier {
     _generation++;
     _retryTimer?.cancel();
     _closeChannel();
+    _dropLeadership();
     if (enabled) _reset();
   }
 
-  /// App kommt in den Vordergrund: Verbindung sofort wiederherstellen.
+  /// App geht in den Hintergrund.
+  void pause() {
+    _pausedAt ??= DateTime.now();
+  }
+
+  /// App kommt in den Vordergrund: Verbindung prüfen bzw. wiederherstellen.
   void resume() {
+    final paused = _pausedAt;
+    _pausedAt = null;
     if (!enabled) return;
-    if (status == SyncStatus.offline) {
-      _retryTimer?.cancel();
-      _attempt = 0;
-      _connect();
-    } else if (_channel != null) {
-      _checkAlive(force: true);
+    final longAway = paused != null &&
+        DateTime.now().difference(paused) > _reconnectAfterPause;
+    if (status == SyncStatus.offline ||
+        (longAway &&
+            (status == SyncStatus.online || status == SyncStatus.connecting))) {
+      _reconnectNow();
+    } else if (status == SyncStatus.online) {
+      _probe();
     }
+  }
+
+  /// Netzwerk gewechselt: Eine offene Verbindung ist danach oft tot, eine
+  /// fehlende klappt jetzt vielleicht wieder.
+  void networkChanged() {
+    if (!enabled) return;
+    if (status == SyncStatus.offline && _serverErrorCode == null) {
+      _reconnectNow();
+    } else if (status == SyncStatus.online) {
+      _probe();
+    }
+  }
+
+  void _reconnectNow() {
+    _retryTimer?.cancel();
+    _attempt = 0;
+    if (status == SyncStatus.online) _onlineLostAt = DateTime.now();
+    _connect();
   }
 
   void clearNotice() {
@@ -195,6 +293,9 @@ class SyncService extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _graceTimer?.cancel();
+    _netSub?.cancel();
+    _netSub = null;
     _shutdown();
     super.dispose();
   }
@@ -221,7 +322,50 @@ class SyncService extends ChangeNotifier {
     code = st.code;
     _crypto = await SyncCrypto.fromCode(st.code);
     _attempt = 0;
-    _connect();
+    _onlineLostAt = DateTime.now();
+    _listenNetwork();
+    _becomeLeaderAndConnect();
+  }
+
+  /// Verbindet, sobald dieser Tab die Verbindung halten darf (nativ sofort).
+  void _becomeLeaderAndConnect() {
+    _dropLeadership();
+    final request = _leaderRequest;
+    final lock = _leaderLock(_leaderLockName);
+    if (lock is! Future<void Function()>) {
+      _releaseLeader = lock;
+      _connect();
+      return;
+    }
+    status = SyncStatus.otherTab;
+    _notify();
+    lock.then((release) {
+      if (request != _leaderRequest || !enabled || _disposed) {
+        release();
+        return;
+      }
+      _releaseLeader = release;
+      _onlineLostAt = DateTime.now();
+      _connect();
+    });
+  }
+
+  void _dropLeadership() {
+    _leaderRequest++;
+    _releaseLeader?.call();
+    _releaseLeader = null;
+  }
+
+  void _listenNetwork() {
+    if (_netSub != null) return;
+    try {
+      _netSub = _networkChanges().listen(
+        (_) => networkChanged(),
+        onError: (Object e) => debugPrint('Netzwerkstatus nicht verfügbar: $e'),
+      );
+    } catch (e) {
+      debugPrint('Netzwerkstatus nicht verfügbar: $e');
+    }
   }
 
   void _reset() {
@@ -230,6 +374,9 @@ class SyncService extends ChangeNotifier {
     _crypto = null;
     error = null;
     status = SyncStatus.off;
+    _graceTimer?.cancel();
+    _netSub?.cancel();
+    _netSub = null;
     _notify();
   }
 
@@ -268,6 +415,8 @@ class SyncService extends ChangeNotifier {
     final gen = ++_generation;
     _closeChannel();
     status = SyncStatus.connecting;
+    _serverErrorCode = null;
+    _lastRx = DateTime.now();
     _notify();
     try {
       final ch = WebSocketChannel.connect(wsUri(url!));
@@ -277,31 +426,56 @@ class SyncService extends ChangeNotifier {
       _lastRx = DateTime.now();
       _sub = ch.stream.listen(
         (msg) => _onFrame(gen, msg),
-        onDone: () => _onClosed(gen, ch.closeReason),
+        onDone: () => _onClosed(gen, _closeText(ch)),
         onError: (Object e) => _onClosed(gen, e),
         cancelOnError: true,
       );
       final st = await _loadState();
       if (gen != _generation || st == null) return;
       ch.sink.add(encodeHello(_crypto!.vaultId, st.seq));
-      _pingTimer = Timer.periodic(const Duration(seconds: 5), (_) => _checkAlive());
+      _pingTimer = Timer.periodic(_checkEvery, (_) => _checkAlive());
     } catch (e) {
       _onClosed(gen, e);
     }
   }
 
-  void _checkAlive({bool force = false}) {
-    final idle = DateTime.now().difference(_lastRx);
-    if (idle > _deadAfter) {
+  static String _closeText(WebSocketChannel ch) {
+    final reason = ch.closeReason;
+    if (reason != null && reason.isNotEmpty) return reason;
+    final code = ch.closeCode;
+    return code == null
+        ? 'Verbindung getrennt'
+        : 'Verbindung getrennt (Code $code)';
+  }
+
+  /// Erkennt tote Verbindungen: Nach [_pingAfter] ohne Daten wird gepingt,
+  /// bleibt die Antwort [_probeTimeout] lang aus, wird neu verbunden.
+  void _checkAlive() {
+    if (_sub == null) return;
+    final now = DateTime.now();
+    final probe = _probeSentAt;
+    if ((probe != null && now.difference(probe) > _probeTimeout) ||
+        now.difference(_lastRx) > _deadAfter) {
       _onClosed(_generation, 'Keine Antwort vom Server');
-    } else if (force || idle > _pingAfter) {
-      _channel?.sink.add(pingFrame);
+    } else if (probe == null && now.difference(_lastRx) > _pingAfter) {
+      _probe();
     }
+  }
+
+  /// Sendet einen PING; jede Nachricht vom Server gilt als Antwort.
+  void _probe() {
+    final ch = _channel;
+    if (ch == null || _sub == null) return;
+    _probeSentAt ??= DateTime.now();
+    ch.sink.add(pingFrame);
   }
 
   void _closeChannel() {
     _pingTimer?.cancel();
     _pingTimer = null;
+    _stableTimer?.cancel();
+    _stableTimer = null;
+    _probeSentAt = null;
     _sub?.cancel();
     _sub = null;
     _channel?.sink.close();
@@ -313,23 +487,54 @@ class SyncService extends ChangeNotifier {
   void _onClosed(int gen, Object? reason) {
     if (gen != _generation) return;
     _generation++;
+    final wasOnline = status == SyncStatus.online;
+    final serverError = _serverErrorCode;
     _closeChannel();
     if (!enabled || _disposed) return;
+    if (wasOnline) _onlineLostAt = DateTime.now();
     status = SyncStatus.offline;
-    if (reason != null) error = _describe(reason);
+    // Die Fehlermeldung des Servers ist aussagekräftiger als der Close-Grund.
+    if (serverError == null && reason != null) error = _describe(reason);
     _notify();
-    final delay = _backoff[min(_attempt, _backoff.length - 1)];
+    // Nach Ablauf der Schonfrist von „Verbinde …“ auf „Offline“ wechseln.
+    _graceTimer?.cancel();
+    _graceTimer = Timer(offlineGrace, _notify);
+    final delay = retryDelay(_attempt, serverError, reason);
     _attempt++;
     _retryTimer?.cancel();
-    _retryTimer = Timer(
-        Duration(milliseconds: delay * 1000 + Random().nextInt(500)), () {
+    _retryTimer =
+        Timer(delay + Duration(milliseconds: Random().nextInt(500)), () {
       if (enabled && status == SyncStatus.offline) _connect();
     });
   }
 
+  /// Wartezeit bis zum nächsten Verbindungsversuch.
+  @visibleForTesting
+  static Duration retryDelay(int attempt, int? serverError, Object? reason) {
+    switch (serverError) {
+      case SyncErrorCode.unsupportedVersion ||
+            SyncErrorCode.tooLarge ||
+            SyncErrorCode.quotaExceeded:
+        return _permanentRetry;
+      case SyncErrorCode.badRequest ||
+            SyncErrorCode.rateLimited ||
+            SyncErrorCode.tooManyConnections:
+        return _limitedRetry;
+    }
+    final s = reason?.toString() ?? '';
+    if (s.contains('429') || s.contains('503')) return _limitedRetry;
+    return Duration(seconds: _backoff[min(attempt, _backoff.length - 1)]);
+  }
+
   static String _describe(Object e) {
     final s = e.toString();
-    if (s.contains('SocketException') || s.contains('WebSocketChannelException')) {
+    if (s.contains('429')) {
+      return 'Zu viele Verbindungen von dieser Adresse, neuer Versuch in einer Minute';
+    }
+    if (s.contains('503')) return 'Server ausgelastet, neuer Versuch in einer Minute';
+    if (s.contains('SocketException') ||
+        s.contains('WebSocketChannelException') ||
+        s.contains('TimeoutException')) {
       return 'Server nicht erreichbar';
     }
     return s;
@@ -339,6 +544,7 @@ class SyncService extends ChangeNotifier {
     _generation++;
     _retryTimer?.cancel();
     _closeChannel();
+    _dropLeadership();
     await _chain;
   }
 
@@ -348,6 +554,7 @@ class SyncService extends ChangeNotifier {
   void _onFrame(int gen, dynamic msg) {
     if (gen != _generation) return;
     _lastRx = DateTime.now();
+    _probeSentAt = null;
     final Uint8List bytes;
     if (msg is Uint8List) {
       bytes = msg;
@@ -376,7 +583,8 @@ class SyncService extends ChangeNotifier {
         break;
       case VaultDeletedMessage():
         _enqueue(_onVaultDeleted);
-      case ErrorMessage(:final message):
+      case ErrorMessage(:final code, :final message):
+        _serverErrorCode = code;
         error = message;
         _notify();
     }
@@ -443,9 +651,14 @@ class SyncService extends ChangeNotifier {
       return;
     }
     _live = true;
-    _attempt = 0;
     error = null;
     status = SyncStatus.online;
+    _onlineLostAt = null;
+    // Den Backoff erst nach stabiler Verbindung zurücksetzen: Trennt der
+    // Server gleich wieder (z. B. beim nächsten PUSH), soll der Client nicht
+    // im Sekundentakt neu verbinden.
+    _stableTimer?.cancel();
+    _stableTimer = Timer(_stableAfter, () => _attempt = 0);
     _notify();
     _schedulePush();
   }
@@ -483,6 +696,7 @@ class SyncService extends ChangeNotifier {
       return;
     }
     _inflight = null;
+    _attempt = 0;
     final more = await _store.exclusive(() async {
       final st = await _loadState();
       if (st == null) return false;
@@ -501,6 +715,7 @@ class SyncService extends ChangeNotifier {
     _generation++;
     _retryTimer?.cancel();
     _closeChannel();
+    _dropLeadership();
     await _store.saveSyncState(null);
     _reset();
     if (requested != null) {
