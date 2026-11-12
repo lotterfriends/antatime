@@ -22,9 +22,11 @@ enum AutoTrack {
 /// Soll die Zeiterfassung beim Programmstart um [now] beginnen?
 ///
 /// Nie, wenn sie schon läuft. An Arbeitstagen nicht erneut, wenn heute
-/// bereits „Feierabend“ gewählt wurde ([stoppedToday]).
+/// bereits „Feierabend“ gewählt wurde ([stoppedToday]), und nicht mehr nach
+/// [untilMinutes] (Minuten nach Mitternacht, einschließlich; `null` = ohne
+/// Begrenzung). [AutoTrack.always] startet unabhängig davon immer.
 bool shouldAutoTrack(AutoTrack mode, AppData data, DateTime now,
-    {bool stoppedToday = false}) {
+    {bool stoppedToday = false, int? untilMinutes}) {
   if (data.running != null) return false;
   switch (mode) {
     case AutoTrack.off:
@@ -32,6 +34,9 @@ bool shouldAutoTrack(AutoTrack mode, AppData data, DateTime now,
     case AutoTrack.always:
       return true;
     case AutoTrack.workdays:
+      if (untilMinutes != null && now.hour * 60 + now.minute > untilMinutes) {
+        return false;
+      }
       return !stoppedToday && isWorkday(data, now);
   }
 }

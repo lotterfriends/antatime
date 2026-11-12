@@ -45,6 +45,10 @@ class Repository implements SyncStore {
   /// [AutoTrack]).
   static const _kAutoTrack = 'autoTrack';
 
+  /// Spätester automatischer Start in Minuten nach Mitternacht (nur dieses
+  /// Gerät, siehe [shouldAutoTrack]); fehlt = ohne Begrenzung.
+  static const _kAutoTrackUntil = 'autoTrackUntil';
+
   /// Darstellung des Tray-Symbols (nur dieses Gerät, siehe [TrayIconStyle]).
   static const _kTrayIconStyle = 'trayIconStyle';
 
@@ -135,6 +139,15 @@ class Repository implements SyncStore {
   Future<void> saveAutoTrack(AutoTrack mode) => mode == AutoTrack.off
       ? _prefs.remove(_kAutoTrack)
       : _prefs.setString(_kAutoTrack, mode.name);
+
+  Future<int?> loadAutoTrackUntil() async {
+    final v = int.tryParse(await _prefs.getString(_kAutoTrackUntil) ?? '');
+    return v != null && v >= 0 && v < 24 * 60 ? v : null;
+  }
+
+  Future<void> saveAutoTrackUntil(int? minutes) => minutes == null
+      ? _prefs.remove(_kAutoTrackUntil)
+      : _prefs.setString(_kAutoTrackUntil, '$minutes');
 
   Future<TrayIconStyle> loadTrayIconStyle() async =>
       TrayIconStyle.byName(await _prefs.getString(_kTrayIconStyle));

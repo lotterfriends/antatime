@@ -53,6 +53,24 @@ void main() {
     expect(shouldAutoTrack(AutoTrack.workdays, running, monday), isFalse);
   });
 
+  test('An Arbeitstagen nur bis zur eingestellten Uhrzeit', () {
+    DateTime at(int h, int m) => DateTime(2026, 11, 9, h, m);
+    const until = 10 * 60;
+    bool check(DateTime now, [int? until]) =>
+        shouldAutoTrack(AutoTrack.workdays, _data(), now, untilMinutes: until);
+    expect(check(at(9, 59), until), isTrue);
+    expect(check(at(10, 0), until), isTrue);
+    expect(check(at(10, 1), until), isFalse);
+    expect(check(at(18, 0)), isTrue);
+  });
+
+  test('Immer beginnen ignoriert die Uhrzeit', () {
+    final late = DateTime(2026, 11, 14, 22);
+    expect(
+        shouldAutoTrack(AutoTrack.always, _data(), late, untilMinutes: 600),
+        isTrue);
+  });
+
   test('unbekannter Wert wird zu aus', () {
     expect(AutoTrack.byName(null), AutoTrack.off);
     expect(AutoTrack.byName('xyz'), AutoTrack.off);

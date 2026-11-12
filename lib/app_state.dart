@@ -239,16 +239,27 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// Spätester automatischer Start an Arbeitstagen (Minuten nach
+  /// Mitternacht, `null` = ohne Begrenzung; nur dieses Gerät).
+  Future<int?> autoTrackUntil() => _repo.loadAutoTrackUntil();
+
+  Future<void> setAutoTrackUntil(int? minutes) async {
+    await _repo.saveAutoTrackUntil(minutes);
+    notifyListeners();
+  }
+
   /// Beim Programmstart: Zeiterfassung beginnen, falls so eingestellt
   /// (siehe [shouldAutoTrack]). Gibt `true` zurück, wenn sie gestartet wurde.
   Future<bool> autoStartTracking() async {
     final mode = await _repo.loadAutoTrack();
     if (mode == AutoTrack.off) return false;
+    final until = await _repo.loadAutoTrackUntil();
     final started = await _repo.exclusive(() async {
       data = await _repo.load();
       now = DateTime.now();
       stoppedToday = await _repo.stoppedOn(now);
-      if (!shouldAutoTrack(mode, data, now, stoppedToday: stoppedToday)) {
+      if (!shouldAutoTrack(mode, data, now,
+          stoppedToday: stoppedToday, untilMinutes: until)) {
         return false;
       }
       Repository.toggle(data, now);

@@ -19,6 +19,7 @@ class AutostartTile extends StatefulWidget {
 class _AutostartTileState extends State<AutostartTile> {
   bool? _enabled;
   AutoTrack? _autoTrack;
+  int? _until;
   bool _busy = false;
 
   @override
@@ -27,8 +28,12 @@ class _AutostartTileState extends State<AutostartTile> {
     Autostart.instance.isEnabled().then((v) {
       if (mounted) setState(() => _enabled = v);
     });
-    context.read<AppState>().autoTrack().then((v) {
+    final state = context.read<AppState>();
+    state.autoTrack().then((v) {
       if (mounted) setState(() => _autoTrack = v);
+    });
+    state.autoTrackUntil().then((v) {
+      if (mounted) setState(() => _until = v);
     });
   }
 
@@ -67,9 +72,26 @@ class _AutostartTileState extends State<AutostartTile> {
     if (mounted) setState(() => _autoTrack = mode);
   }
 
+  Future<void> _setUntil(int? minutes) async {
+    await context.read<AppState>().setAutoTrackUntil(minutes);
+    if (mounted) setState(() => _until = minutes);
+  }
+
+  Future<void> _pickUntil() async {
+    final initial = _until ?? 10 * 60;
+    final t = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(hour: initial ~/ 60, minute: initial % 60),
+      helpText: 'Automatisch beginnen bis',
+    );
+    if (t != null) await _setUntil(t.hour * 60 + t.minute);
+  }
+
   @override
   Widget build(BuildContext context) {
     final autoTrack = _autoTrack;
+    final until = _until;
+    final always = autoTrack == AutoTrack.always;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -96,10 +118,36 @@ class _AutostartTileState extends State<AutostartTile> {
               : (v) => _setAutoTrack(v ? AutoTrack.workdays : AutoTrack.off),
         ),
         if (autoTrack != null && autoTrack != AutoTrack.off)
+          ListTile(
+            leading: const SizedBox(width: 24),
+            enabled: !always,
+            title: const Text('Nur bis'),
+            subtitle: Text(always
+                ? '„Immer beginnen“ ist eingeschaltet und gilt zu jeder Uhrzeit'
+                : until == null
+                    ? 'Zu jeder Uhrzeit automatisch beginnen'
+                    : 'Bei einem späteren Start nicht mehr automatisch '
+                        'beginnen'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(until == null ? 'Ohne Grenze' : '${_hm(until)} Uhr'),
+                if (until != null)
+                  IconButton(
+                    tooltip: 'Ohne Grenze',
+                    icon: const Icon(Icons.clear),
+                    onPressed: always ? null : () => _setUntil(null),
+                  ),
+              ],
+            ),
+            onTap: _pickUntil,
+          ),
+        if (autoTrack != null && autoTrack != AutoTrack.off)
           SwitchListTile(
             secondary: const SizedBox(width: 24),
             title: const Text('Immer beginnen'),
-            subtitle: const Text('Bei jedem Start, auch an freien Tagen'),
+            subtitle: const Text('Bei jedem Start, auch an freien Tagen '
+                'und unabhängig von der Uhrzeit'),
             value: autoTrack == AutoTrack.always,
             onChanged: (v) =>
                 _setAutoTrack(v ? AutoTrack.always : AutoTrack.workdays),
@@ -108,6 +156,9 @@ class _AutostartTileState extends State<AutostartTile> {
     );
   }
 }
+
+String _hm(int minutes) => '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
+    '${(minutes % 60).toString().padLeft(2, '0')}';
 
 /// Fragt nach dem Einschalten des Autostarts, ob die Zeiterfassung beim
 /// Start auch gleich beginnen soll (`null` = abgebrochen).
