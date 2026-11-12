@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app_state.dart';
+import 'click_cursor.dart';
 import 'desktop/autostart.dart';
 import 'desktop/desktop_notifications.dart';
 import 'notification_service.dart';
@@ -67,13 +68,13 @@ class AnTaTimeApp extends StatelessWidget {
     return MaterialApp(
       title: 'AnTaTime',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
+      theme: withClickCursors(ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: seed),
-      ),
-      darkTheme: ThemeData(
+      )),
+      darkTheme: withClickCursors(ThemeData(
         colorScheme:
             ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
-      ),
+      )),
       locale: const Locale('de', 'DE'),
       supportedLocales: const [Locale('de', 'DE')],
       localizationsDelegates: const [
@@ -107,17 +108,22 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(index: _index, children: _pages),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.timer_outlined), label: 'Heute'),
-          NavigationDestination(icon: Icon(Icons.calendar_month), label: 'Verlauf'),
-          NavigationDestination(
-              icon: Icon(Icons.beach_access_outlined), label: 'Abwesend'),
-          NavigationDestination(
-              icon: Icon(Icons.settings_outlined), label: 'Einstellungen'),
-        ],
+      // Die NavigationBar lässt den Cursor nicht einstellen.
+      bottomNavigationBar: ClickCursorArea(
+        child: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: (i) => setState(() => _index = i),
+          destinations: const [
+            NavigationDestination(
+                icon: Icon(Icons.timer_outlined), label: 'Heute'),
+            NavigationDestination(
+                icon: Icon(Icons.calendar_month), label: 'Verlauf'),
+            NavigationDestination(
+                icon: Icon(Icons.beach_access_outlined), label: 'Abwesend'),
+            NavigationDestination(
+                icon: Icon(Icons.settings_outlined), label: 'Einstellungen'),
+          ],
+        ),
       ),
     );
   }

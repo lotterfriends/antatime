@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../click_cursor.dart';
 import '../balance.dart';
 import '../format.dart';
 import '../models.dart';
@@ -90,6 +91,7 @@ class _PauseTile extends StatelessWidget {
       color: theme.colorScheme.outline,
     );
     return InkWell(
+      mouseCursor: clickCursor,
       onTap: () => _delete(context),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),

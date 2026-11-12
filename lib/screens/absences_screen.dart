@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../click_cursor.dart';
 import '../format.dart';
 import '../models.dart';
 
@@ -186,6 +187,7 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
               children: [
                 for (final t in AbsenceType.editable)
                   ChoiceChip(
+                    mouseCursor: clickCursor,
                     avatar: Icon(absenceIcon(t), size: 18),
                     label: Text(t.label),
                     selected: _type == t,

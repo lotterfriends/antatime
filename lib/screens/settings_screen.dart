@@ -3,6 +3,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../click_cursor.dart';
 import '../desktop/autostart.dart';
 import '../desktop/desktop_notifications.dart';
 import '../format.dart';
@@ -119,6 +120,7 @@ class SettingsScreen extends StatelessWidget {
               children: [
                 for (var wd = 1; wd <= 7; wd++)
                   FilterChip(
+                    mouseCursor: clickCursor,
                     label: Text(weekdayShort[wd - 1]),
                     selected: s.workdays.contains(wd),
                     onSelected: (sel) => state.updateSettings((x) {
