@@ -177,12 +177,17 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
           SwitchListTile(
-            secondary: const Icon(Icons.star_half_outlined),
-            title: const Text('Heiligabend und Silvester als halbe Feiertage'),
-            subtitle: const Text('Am 24.12. und 31.12. gilt nur die Hälfte '
-                'der Tagesstunden, Urlaub zählt dort als halber Tag'),
-            value: s.halfHolidays,
-            onChanged: (v) => state.updateSettings((x) => x.halfHolidays = v),
+            secondary: Icon(s.halfHolidays
+                ? Icons.star_half_outlined
+                : Icons.star_outlined),
+            title: const Text('Heiligabend und Silvester ganz frei'),
+            subtitle: Text(s.halfHolidays
+                ? '24.12. und 31.12. sind halbe Feiertage: halbes Soll, '
+                    'Urlaub zählt dort als halber Tag'
+                : 'Der Arbeitgeber schenkt die zweite Tageshälfte: '
+                    '24.12. und 31.12. sind ganz frei, kein Urlaub nötig'),
+            value: !s.halfHolidays,
+            onChanged: (v) => state.updateSettings((x) => x.halfHolidays = !v),
           ),
           if (NotificationService.instance.supported ||
               DesktopNotifications.supported)

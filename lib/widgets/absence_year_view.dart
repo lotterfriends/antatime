@@ -341,11 +341,8 @@ class _Summary extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
     final days = _typeDays(calc, year);
-    final types = [
-      ...AbsenceType.editable,
-      if (calc.settings.federalState != null || calc.settings.halfHolidays)
-        AbsenceType.holiday,
-    ];
+    // Heiligabend und Silvester sind immer (halbe oder ganze) Feiertage.
+    final types = [...AbsenceType.editable, AbsenceType.holiday];
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Wrap(

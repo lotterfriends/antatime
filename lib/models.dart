@@ -168,8 +168,9 @@ class Settings {
   /// sind (nicht an Feiertagen und bei Abwesenheit).
   bool targetReminder;
 
-  /// Heiligabend und Silvester als halbe Feiertage: an diesen Tagen gilt
-  /// nur die Hälfte der Tagesstunden.
+  /// Heiligabend und Silvester sind halbe Feiertage: an diesen Tagen gilt
+  /// nur die Hälfte der Tagesstunden. `false` = der Arbeitgeber schenkt die
+  /// zweite Hälfte, die Tage sind ganz frei (wie ein Feiertag).
   bool halfHolidays;
 
   int get dailyTargetMinutes => (dailyHours * 60).round();

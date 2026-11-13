@@ -76,7 +76,9 @@ class DayScreen extends StatelessWidget {
               leading: Icon(absenceIcon(stats.absence!.type)),
               title: Text(stats.absence!.label),
               subtitle: Text(stats.absence!.isHoliday
-                  ? 'Gesetzlicher Feiertag'
+                  ? (stats.absence!.id.startsWith('holiday-')
+                      ? 'Gesetzlicher Feiertag'
+                      : 'Ganzer Tag frei')
                   : '${formatDateShort(stats.absence!.from)} – ${formatDateShort(stats.absence!.to)}'),
               onTap: stats.absence!.isHoliday
                   ? null

@@ -106,7 +106,7 @@ class _AbsencesScreenState extends State<AbsencesScreen> {
                     title: Text(a.label),
                     subtitle: Text(
                       '$range · '
-                      '${a.half ? 'Halber Feiertag' : 'Feiertag ${federalState?.label ?? ''}'}'
+                      '${a.half ? 'Halber Feiertag' : a.id.startsWith('holiday-') ? 'Feiertag ${federalState?.label ?? ''}' : 'Ganzer Tag frei'}'
                       '${n == 0 ? ' · kein Arbeitstag' : ''}',
                     ),
                   );

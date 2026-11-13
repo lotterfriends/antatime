@@ -48,11 +48,54 @@ void main() {
     expect(calc.workdaysOf(single), 0.5);
   });
 
-  test('Ausgeschaltet: volle Tage wie bisher', () {
+  test('Ganz frei: Heiligabend und Silvester wie ganze Feiertage', () {
     final calc = BalanceCalculator(data(halfHolidays: false), later);
     expect(calc.halfHolidayFor(xmasEve), isNull);
-    expect(calc.targetFor(xmasEve), const Duration(hours: 8));
     expect(calc.halfHolidaysIn(2026), isEmpty);
+    expect(calc.holidayFor(xmasEve)?.label, 'Heiligabend');
+    expect(calc.holidayFor(nye)?.label, 'Silvester');
+    expect(calc.holidaysIn(2026).map((h) => h.label),
+        containsAll(['Heiligabend', 'Silvester']));
+    // Ohne Arbeit kein Minus: der ganze Tag ist frei.
+    expect(calc.statsFor(xmasEve).diff, Duration.zero);
+    expect(calc.statsFor(nye).diff, Duration.zero);
+    // Arbeit zählt komplett als Überstunden.
+    expect(calc.absenceFor(xmasEve)?.isHoliday, isTrue);
+
+    // Urlaub über die Feiertage verbraucht dort keinen Urlaubstag:
+    // Mo–Mi 21.–23. = 3, Mo–Mi 28.–30. = 3, Fr 25. und 1.1. = je 1
+    // (ohne Bundesland keine gesetzlichen Feiertage).
+    final vacation = Absence(
+      id: 'u',
+      type: AbsenceType.vacation,
+      from: DateTime(2026, 12, 21),
+      to: DateTime(2027, 1, 1),
+    );
+    final withVacation = BalanceCalculator(
+        data(absences: [vacation], halfHolidays: false), later);
+    expect(withVacation.workdaysOf(vacation), 8);
+    final single = Absence(
+        id: 'h', type: AbsenceType.vacation, from: xmasEve, to: xmasEve);
+    expect(withVacation.workdaysOf(single), 0);
+  });
+
+  test('Ganz frei mit Bundesland: gesetzliche Feiertage bleiben', () {
+    final calc = BalanceCalculator(
+      AppData(
+        sessions: [],
+        absences: [],
+        settings: Settings(
+          startDate: DateTime(2026, 12, 21),
+          dailyHours: 8,
+          halfHolidays: false,
+          federalState: FederalState.be,
+        ),
+      ),
+      later,
+    );
+    expect(calc.holidayFor(DateTime(2026, 12, 25))?.label,
+        '1. Weihnachtsfeiertag');
+    expect(calc.holidayFor(xmasEve)?.label, 'Heiligabend');
   });
 
   test('Einstellung wird gespeichert, fehlt sie, ist sie an', () {

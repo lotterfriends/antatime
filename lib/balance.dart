@@ -81,7 +81,7 @@ class BalanceCalculator {
   final DateTime now;
   final Map<String, List<WorkSession>> _byDay = {};
   final Map<int, Map<String, Absence>> _holidaysByYear = {};
-  final Map<int, Map<String, Absence>> _halfHolidaysByYear = {};
+  final Map<int, Map<String, Absence>> _christmasByYear = {};
 
   Settings get settings => data.settings;
 
@@ -93,24 +93,29 @@ class BalanceCalculator {
   }
 
   /// Halbe Feiertage (Heiligabend/Silvester) des Jahres als (nicht
-  /// gespeicherte) Abwesenheiten, falls eingeschaltet.
+  /// gespeicherte) Abwesenheiten. Ist eingestellt, dass diese Tage ganz frei
+  /// sind, zählen sie stattdessen als ganze Feiertage (siehe [holidaysIn]).
   List<Absence> halfHolidaysIn(int year) =>
       _halfHolidayMap(year).values.toList(growable: false);
 
   Map<String, Absence> _halfHolidayMap(int year) {
     if (!settings.halfHolidays) return const {};
-    return _halfHolidaysByYear.putIfAbsent(year, () => {
+    return _christmasMap(year);
+  }
+
+  /// Heiligabend und Silvester – halb oder ganz frei je nach Einstellung.
+  Map<String, Absence> _christmasMap(int year) =>
+      _christmasByYear.putIfAbsent(year, () => {
           for (final h in halfHolidaysFor(year))
             dayKey(h.date): Absence(
-              id: 'half-holiday-${dayKey(h.date)}',
+              id: 'christmas-${dayKey(h.date)}',
               type: AbsenceType.holiday,
               from: h.date,
               to: h.date,
               note: h.name,
-              half: true,
+              half: settings.halfHolidays,
             ),
         });
-  }
 
   /// Halber Feiertag am [day], falls vorhanden.
   Absence? halfHolidayFor(DateTime day) =>
@@ -133,23 +138,25 @@ class BalanceCalculator {
     return n;
   }
 
-  /// Gesetzliche Feiertage des Jahres im gewählten Bundesland als
-  /// (nicht gespeicherte) Abwesenheiten.
+  /// Ganze Feiertage des Jahres als (nicht gespeicherte) Abwesenheiten:
+  /// gesetzliche Feiertage im gewählten Bundesland sowie Heiligabend und
+  /// Silvester, falls diese ganz frei sind.
   List<Absence> holidaysIn(int year) =>
       _holidayMap(year).values.toList(growable: false);
 
   Map<String, Absence> _holidayMap(int year) {
     final state = settings.federalState;
-    if (state == null) return const {};
     return _holidaysByYear.putIfAbsent(year, () => {
-          for (final h in holidaysFor(state, year))
-            dayKey(h.date): Absence(
-              id: 'holiday-${dayKey(h.date)}',
-              type: AbsenceType.holiday,
-              from: h.date,
-              to: h.date,
-              note: h.name,
-            ),
+          if (state != null)
+            for (final h in holidaysFor(state, year))
+              dayKey(h.date): Absence(
+                id: 'holiday-${dayKey(h.date)}',
+                type: AbsenceType.holiday,
+                from: h.date,
+                to: h.date,
+                note: h.name,
+              ),
+          if (!settings.halfHolidays) ..._christmasMap(year),
         });
   }
 
