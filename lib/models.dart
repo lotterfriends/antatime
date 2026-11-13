@@ -16,6 +16,9 @@ String newId() =>
     '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}${_rnd.nextInt(0x7fffffff).toRadixString(36)}';
 
 /// Ein Arbeitszeit-Block. [end] == null bedeutet: läuft gerade.
+/// Kürzere Unterbrechungen gelten nicht als Pause.
+const minBreak = Duration(minutes: 1);
+
 class WorkSession {
   WorkSession({required this.id, required this.start, this.end, this.note});
 

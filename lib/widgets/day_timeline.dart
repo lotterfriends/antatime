@@ -23,7 +23,7 @@ class DayTimeline extends StatelessWidget {
       final s = sessions[i];
       if (i > 0 && sessions[i - 1].end != null) {
         final gap = s.start.difference(sessions[i - 1].end!);
-        if (gap > Duration.zero) {
+        if (gap >= minBreak) {
           children.add(
             _PauseTile(before: sessions[i - 1], after: s, duration: gap),
           );

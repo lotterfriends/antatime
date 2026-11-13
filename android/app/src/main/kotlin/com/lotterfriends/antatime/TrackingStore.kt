@@ -26,6 +26,9 @@ class TrackingStore(context: Context) {
         private const val KEY_SETTINGS = "settings"
         const val KEY_STOPPED_DAY = "notificationStoppedDay"
 
+        /** Kürzere Unterbrechungen gelten nicht als Pause (wie `minBreak` in Dart). */
+        private const val MIN_BREAK_MS = 60_000L
+
         private val isoLocal: DateTimeFormatter =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")
     }
@@ -95,6 +98,27 @@ class TrackingStore(context: Context) {
                 o.put("end", format(now))
                 prefs.edit().putString(KEY_SESSIONS, arr.toString()).commit()
                 return false
+            }
+        }
+        // Pausen unter einer Minute ignorieren (wie in Dart): den zuletzt
+        // beendeten Abschnitt fortsetzen statt einen neuen zu beginnen.
+        var last: JSONObject? = null
+        var lastEnd: Instant? = null
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            if (!o.has("end") || o.isNull("end")) continue
+            val end = try { parse(o.getString("end")) } catch (e: Exception) { continue }
+            if (lastEnd == null || end.isAfter(lastEnd)) { last = o; lastEnd = end }
+        }
+        if (last != null && lastEnd != null) {
+            val gap = now.toEpochMilli() - lastEnd.toEpochMilli()
+            if (gap in 0 until MIN_BREAK_MS) {
+                last.remove("end")
+                prefs.edit()
+                    .putString(KEY_SESSIONS, arr.toString())
+                    .remove(KEY_STOPPED_DAY)
+                    .commit()
+                return true
             }
         }
         val id = (now.toEpochMilli() * 1000).toString(36) +

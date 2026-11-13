@@ -180,6 +180,21 @@ class Repository implements SyncStore {
       running.end = now;
       return false;
     }
+    // Pausen unter einer Minute ignorieren: den zuletzt beendeten Abschnitt
+    // einfach fortsetzen statt einen neuen zu beginnen.
+    WorkSession? last;
+    for (final s in data.sessions) {
+      if (s.end != null && (last == null || s.end!.isAfter(last.end!))) {
+        last = s;
+      }
+    }
+    if (last != null) {
+      final gap = now.difference(last.end!);
+      if (!gap.isNegative && gap < minBreak) {
+        last.end = null;
+        return true;
+      }
+    }
     data.sessions.add(WorkSession(id: newId(), start: now));
     return true;
   }

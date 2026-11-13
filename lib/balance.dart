@@ -48,14 +48,15 @@ class DayStats {
   /// da das Soll bereits durch die Gutschrift erfüllt ist.
   Duration get diff => worked + bonus + credited - target;
 
-  /// Pausen = Lücken zwischen zwei Arbeitszeiten am selben Tag.
+  /// Pausen = Lücken zwischen zwei Arbeitszeiten am selben Tag
+  /// (kürzer als [minBreak] zählen nicht).
   Duration get breaks {
     var total = Duration.zero;
     for (var i = 1; i < sessions.length; i++) {
       final prevEnd = sessions[i - 1].end;
       if (prevEnd == null) continue;
       final gap = sessions[i].start.difference(prevEnd);
-      if (gap > Duration.zero) total += gap;
+      if (gap >= minBreak) total += gap;
     }
     return total;
   }
