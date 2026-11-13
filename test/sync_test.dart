@@ -247,6 +247,30 @@ void main() {
       expect(d(0, SyncErrorCode.internal), const Duration(seconds: 1));
     });
 
+    test('Verspätete Timer trennen nicht, sondern fragen nach', () {
+      final t0 = DateTime(2026, 11, 13, 12);
+      AliveCheck check(int nowS,
+              {required int lastCheckS, required int lastRxS, int? probeS}) =>
+          SyncService.aliveCheck(
+            now: t0.add(Duration(seconds: nowS)),
+            lastCheck: t0.add(Duration(seconds: lastCheckS)),
+            lastRx: t0.add(Duration(seconds: lastRxS)),
+            probeSentAt: probeS == null ? null : t0.add(Duration(seconds: probeS)),
+          );
+      // Timer pünktlich (alle 2 s):
+      expect(check(4, lastCheckS: 2, lastRxS: 0), AliveCheck.ok);
+      expect(check(12, lastCheckS: 10, lastRxS: 0), AliveCheck.probe);
+      expect(check(14, lastCheckS: 12, lastRxS: 0, probeS: 12), AliveCheck.ok);
+      expect(check(20, lastCheckS: 18, lastRxS: 0, probeS: 12), AliveCheck.dead);
+      expect(check(30, lastCheckS: 28, lastRxS: 0), AliveCheck.dead);
+      // Hintergrund-Tab: Timer erst nach einer Minute, die Verbindung hat
+      // zuletzt vor 60 s etwas geschickt – erst nachfragen, nicht trennen.
+      expect(check(60, lastCheckS: 0, lastRxS: 0), AliveCheck.probe);
+      // Bleibt die Antwort auf diesen PING bis zum nächsten (wieder
+      // verspäteten) Timer aus, ist die Verbindung tot.
+      expect(check(120, lastCheckS: 60, lastRxS: 0, probeS: 60), AliveCheck.dead);
+    });
+
     test('Kurze Unterbrechung erscheint nicht als Offline', () async {
       final sync = SyncService(_MemoryStore(),
           networkChanges: () => const Stream.empty());

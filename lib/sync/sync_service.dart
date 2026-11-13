@@ -25,6 +25,10 @@ abstract class SyncStore {
   Future<void> saveSyncState(String? json);
 }
 
+/// Ergebnis der regelmäßigen Verbindungsprüfung (siehe
+/// [SyncService.aliveCheck]).
+enum AliveCheck { ok, probe, dead }
+
 enum SyncStatus {
   off,
   connecting,
@@ -130,6 +134,7 @@ class SyncService extends ChangeNotifier {
   Timer? _stableTimer;
   Timer? _graceTimer;
   DateTime _lastRx = DateTime.now();
+  DateTime _lastCheck = DateTime.now();
 
   /// Zeitpunkt des unbeantworteten PINGs, `null` = keiner offen.
   DateTime? _probeSentAt;
@@ -433,6 +438,7 @@ class SyncService extends ChangeNotifier {
       final st = await _loadState();
       if (gen != _generation || st == null) return;
       ch.sink.add(encodeHello(_crypto!.vaultId, st.seq));
+      _lastCheck = DateTime.now();
       _pingTimer = Timer.periodic(_checkEvery, (_) => _checkAlive());
     } catch (e) {
       _onClosed(gen, e);
@@ -453,13 +459,48 @@ class SyncService extends ChangeNotifier {
   void _checkAlive() {
     if (_sub == null) return;
     final now = DateTime.now();
-    final probe = _probeSentAt;
-    if ((probe != null && now.difference(probe) > _probeTimeout) ||
-        now.difference(_lastRx) > _deadAfter) {
-      _onClosed(_generation, 'Keine Antwort vom Server');
-    } else if (probe == null && now.difference(_lastRx) > _pingAfter) {
-      _probe();
+    final check = aliveCheck(
+        now: now,
+        lastCheck: _lastCheck,
+        lastRx: _lastRx,
+        probeSentAt: _probeSentAt);
+    _lastCheck = now;
+    switch (check) {
+      case AliveCheck.ok:
+        break;
+      case AliveCheck.probe:
+        _probe();
+      case AliveCheck.dead:
+        _onClosed(_generation, 'Keine Antwort vom Server');
     }
+  }
+
+  /// Entscheidet bei jeder Prüfung, ob die Verbindung noch lebt.
+  ///
+  /// Kam der Timer deutlich zu spät – im Browser drosselt Chrome Timer in
+  /// Hintergrund-Tabs auf einmal pro Minute, auf dem Desktop nach dem
+  /// Ruhezustand –, sagt die Zeit seit der letzten Nachricht nichts über die
+  /// Verbindung aus. Dann wird erst nachgefragt (PING) statt getrennt.
+  /// Ein unbeantworteter PING bedeutet dagegen immer eine tote Verbindung:
+  /// Nachrichten kommen auch in Hintergrund-Tabs sofort an, nur Timer
+  /// werden gedrosselt.
+  @visibleForTesting
+  static AliveCheck aliveCheck({
+    required DateTime now,
+    required DateTime lastCheck,
+    required DateTime lastRx,
+    DateTime? probeSentAt,
+  }) {
+    if (probeSentAt != null) {
+      return now.difference(probeSentAt) > _probeTimeout
+          ? AliveCheck.dead
+          : AliveCheck.ok;
+    }
+    if (now.difference(lastCheck) > _checkEvery * 3) return AliveCheck.probe;
+    final idle = now.difference(lastRx);
+    if (idle > _deadAfter) return AliveCheck.dead;
+    if (idle > _pingAfter) return AliveCheck.probe;
+    return AliveCheck.ok;
   }
 
   /// Sendet einen PING; jede Nachricht vom Server gilt als Antwort.
