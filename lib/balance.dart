@@ -8,6 +8,7 @@ class DayStats {
     required this.worked,
     required this.target,
     required this.absence,
+    this.halfHoliday,
     this.absenceWorkFactor = 1,
   });
 
@@ -20,6 +21,9 @@ class DayStats {
 
   /// Abwesenheit an diesem Tag (Krank/Urlaub/…), falls vorhanden.
   final Absence? absence;
+
+  /// Halber Feiertag an diesem Tag (Soll ist dann bereits halbiert).
+  final Absence? halfHoliday;
 
   /// Faktor für Arbeit an Abwesenheitstagen (Einstellung).
   final double absenceWorkFactor;
@@ -77,12 +81,57 @@ class BalanceCalculator {
   final DateTime now;
   final Map<String, List<WorkSession>> _byDay = {};
   final Map<int, Map<String, Absence>> _holidaysByYear = {};
+  final Map<int, Map<String, Absence>> _halfHolidaysByYear = {};
 
   Settings get settings => data.settings;
 
-  Duration targetFor(DateTime day) => settings.workdays.contains(day.weekday)
-      ? Duration(minutes: settings.dailyTargetMinutes)
-      : Duration.zero;
+  /// Soll-Zeit des Tages; an halben Feiertagen die Hälfte.
+  Duration targetFor(DateTime day) {
+    if (!settings.workdays.contains(day.weekday)) return Duration.zero;
+    final full = Duration(minutes: settings.dailyTargetMinutes);
+    return halfHolidayFor(day) != null ? full ~/ 2 : full;
+  }
+
+  /// Halbe Feiertage (Heiligabend/Silvester) des Jahres als (nicht
+  /// gespeicherte) Abwesenheiten, falls eingeschaltet.
+  List<Absence> halfHolidaysIn(int year) =>
+      _halfHolidayMap(year).values.toList(growable: false);
+
+  Map<String, Absence> _halfHolidayMap(int year) {
+    if (!settings.halfHolidays) return const {};
+    return _halfHolidaysByYear.putIfAbsent(year, () => {
+          for (final h in halfHolidaysFor(year))
+            dayKey(h.date): Absence(
+              id: 'half-holiday-${dayKey(h.date)}',
+              type: AbsenceType.holiday,
+              from: h.date,
+              to: h.date,
+              note: h.name,
+              half: true,
+            ),
+        });
+  }
+
+  /// Halber Feiertag am [day], falls vorhanden.
+  Absence? halfHolidayFor(DateTime day) =>
+      _halfHolidayMap(day.year)[dayKey(day)];
+
+  /// Arbeitstage, die [a] belegt: halbe Feiertage zählen halb, ganze
+  /// Feiertage gar nicht (außer [a] ist selbst ein Feiertag).
+  double workdaysOf(Absence a) {
+    var n = 0.0;
+    for (var d = a.from;
+        !d.isAfter(a.to);
+        d = DateTime(d.year, d.month, d.day + 1)) {
+      if (!settings.workdays.contains(d.weekday)) continue;
+      if (a.isHoliday) {
+        n += a.half ? 0.5 : 1;
+      } else if (holidayFor(d) == null) {
+        n += halfHolidayFor(d) != null ? 0.5 : 1;
+      }
+    }
+    return n;
+  }
 
   /// Gesetzliche Feiertage des Jahres im gewählten Bundesland als
   /// (nicht gespeicherte) Abwesenheiten.
@@ -130,6 +179,7 @@ class BalanceCalculator {
       worked: worked,
       target: targetFor(d),
       absence: absenceFor(d),
+      halfHoliday: halfHolidayFor(d),
       absenceWorkFactor: settings.absenceWorkFactor,
     );
   }

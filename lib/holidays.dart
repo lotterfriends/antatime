@@ -129,6 +129,13 @@ List<Holiday> holidaysFor(FederalState state, int year) {
   return list;
 }
 
+/// Halbe Feiertage: Heiligabend und Silvester. Gesetzlich keine Feiertage,
+/// aber vielerorts nur ein halber Arbeitstag.
+List<Holiday> halfHolidaysFor(int year) => [
+      Holiday(DateTime(year, 12, 24), 'Heiligabend'),
+      Holiday(DateTime(year, 12, 31), 'Silvester'),
+    ];
+
 /// Buß- und Bettag: Mittwoch vor dem 23. November.
 DateTime _repentanceDay(int year) {
   var d = DateTime(year, 11, 22);

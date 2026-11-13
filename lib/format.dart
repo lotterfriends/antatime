@@ -60,6 +60,10 @@ String formatHoursNumber(double h) {
   return s.replaceFirst(RegExp(r'\.?0+$'), '').replaceAll('.', ',');
 }
 
+/// Anzahl Arbeitstage, z. B. „1 Arbeitstag“, „4,5 Arbeitstage“.
+String formatWorkdays(double n) =>
+    '${formatHoursNumber(n)} Arbeitstag${n == 1 ? '' : 'e'}';
+
 /// Faktor wie „1,5“ oder „2“.
 String formatFactor(double f) => formatHoursNumber(f);
 

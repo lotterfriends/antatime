@@ -5,16 +5,25 @@ import '../app_state.dart';
 import '../click_cursor.dart';
 import '../format.dart';
 import '../models.dart';
+import '../widgets/absence_year_view.dart';
 
 IconData absenceIcon(AbsenceType t) => switch (t) {
-      AbsenceType.sick => Icons.sick_outlined,
-      AbsenceType.vacation => Icons.beach_access_outlined,
-      AbsenceType.other => Icons.event_busy_outlined,
-      AbsenceType.holiday => Icons.celebration_outlined,
-    };
+  AbsenceType.sick => Icons.sick_outlined,
+  AbsenceType.vacation => Icons.beach_access_outlined,
+  AbsenceType.other => Icons.event_busy_outlined,
+  AbsenceType.holiday => Icons.celebration_outlined,
+};
 
-class AbsencesScreen extends StatelessWidget {
+class AbsencesScreen extends StatefulWidget {
   const AbsencesScreen({super.key});
+
+  @override
+  State<AbsencesScreen> createState() => _AbsencesScreenState();
+}
+
+class _AbsencesScreenState extends State<AbsencesScreen> {
+  /// Jahresansicht statt Liste.
+  bool _yearView = false;
 
   @override
   Widget build(BuildContext context) {
@@ -26,32 +35,45 @@ class AbsencesScreen extends StatelessWidget {
       ...state.data.absences,
       ...calc.holidaysIn(year),
       ...calc.holidaysIn(year + 1),
+      ...calc.halfHolidaysIn(year),
+      ...calc.halfHolidaysIn(year + 1),
     ]..sort((a, b) => b.from.compareTo(a.from));
-    final workdays = state.data.settings.workdays;
     final federalState = state.data.settings.federalState;
 
-    // Arbeitstage ohne Feiertage (z. B. verbrauchte Urlaubstage).
-    int countWorkdays(Absence a) {
-      var n = 0;
-      for (var d = a.from;
-          !d.isAfter(a.to);
-          d = DateTime(d.year, d.month, d.day + 1)) {
-        if (workdays.contains(d.weekday) &&
-            (a.isHoliday || calc.holidayFor(d) == null)) {
-          n++;
-        }
-      }
-      return n;
-    }
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Abwesenheiten')),
+      appBar: AppBar(
+        title: const Text('Abwesenheiten'),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: SegmentedButton<bool>(
+              showSelectedIcon: false,
+              segments: const [
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.view_list_outlined),
+                  tooltip: 'Liste',
+                ),
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.calendar_view_month),
+                  tooltip: 'Jahresansicht',
+                ),
+              ],
+              selected: {_yearView},
+              onSelectionChanged: (s) => setState(() => _yearView = s.first),
+            ),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showAbsenceEditor(context),
         icon: const Icon(Icons.add),
         label: const Text('Abwesenheit'),
       ),
-      body: absences.isEmpty
+      body: _yearView
+          ? const AbsenceYearView()
+          : absences.isEmpty
           ? const Center(
               child: Padding(
                 padding: EdgeInsets.all(32),
@@ -73,22 +95,28 @@ class AbsencesScreen extends StatelessWidget {
                 final range = a.from == a.to
                     ? formatDate(a.from)
                     : '${formatDateShort(a.from)} – ${formatDateShort(a.to)}';
-                final n = countWorkdays(a);
+                // Arbeitstage ohne Feiertage (z. B. verbrauchte Urlaubstage).
+                final n = calc.workdaysOf(a);
                 if (a.isHoliday) {
                   return ListTile(
-                    leading: Icon(absenceIcon(a.type),
-                        color: Theme.of(context).colorScheme.primary),
+                    leading: Icon(
+                      absenceIcon(a.type),
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                     title: Text(a.label),
                     subtitle: Text(
-                        '$range · Feiertag ${federalState?.label ?? ''}'
-                        '${n == 0 ? ' · kein Arbeitstag' : ''}'),
+                      '$range · '
+                      '${a.half ? 'Halber Feiertag' : 'Feiertag ${federalState?.label ?? ''}'}'
+                      '${n == 0 ? ' · kein Arbeitstag' : ''}',
+                    ),
                   );
                 }
                 return ListTile(
                   leading: Icon(absenceIcon(a.type)),
                   title: Text(a.label),
                   subtitle: Text(
-                      '$range · $n Arbeitstag${n == 1 ? '' : 'e'}${a.note != null ? '\n${a.note}' : ''}'),
+                    '$range · ${formatWorkdays(n)}${a.note != null ? '\n${a.note}' : ''}',
+                  ),
                   isThreeLine: a.note != null,
                   onTap: () => showAbsenceEditor(context, absence: a),
                 );
@@ -98,22 +126,29 @@ class AbsencesScreen extends StatelessWidget {
   }
 }
 
-Future<void> showAbsenceEditor(BuildContext context,
-    {Absence? absence, DateTime? day}) {
+/// Öffnet den Dialog für eine neue oder vorhandene [absence]. Eine neue
+/// Abwesenheit beginnt mit [range] bzw. dem Tag [day] (sonst heute).
+Future<void> showAbsenceEditor(
+  BuildContext context, {
+  Absence? absence,
+  DateTime? day,
+  DateTimeRange? range,
+}) {
   return showDialog(
     context: context,
     builder: (_) => ChangeNotifierProvider.value(
       value: context.read<AppState>(),
-      child: _AbsenceEditor(absence: absence, day: day),
+      child: _AbsenceEditor(absence: absence, day: day, range: range),
     ),
   );
 }
 
 class _AbsenceEditor extends StatefulWidget {
-  const _AbsenceEditor({this.absence, this.day});
+  const _AbsenceEditor({this.absence, this.day, this.range});
 
   final Absence? absence;
   final DateTime? day;
+  final DateTimeRange? range;
 
   @override
   State<_AbsenceEditor> createState() => _AbsenceEditorState();
@@ -132,7 +167,7 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
     final d = dayOf(widget.day ?? DateTime.now());
     _range = a != null
         ? DateTimeRange(start: a.from, end: a.to)
-        : DateTimeRange(start: d, end: d);
+        : widget.range ?? DateTimeRange(start: d, end: d);
     _note = TextEditingController(text: a?.note ?? '');
   }
 
@@ -142,25 +177,34 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
     super.dispose();
   }
 
+  static DateTime _latest(DateTime a, DateTime b) => a.isAfter(b) ? a : b;
+
   Future<void> _pickRange() async {
     final r = await showDateRangePicker(
       context: context,
       initialDateRange: _range,
-      firstDate: DateTime(2000),
-      lastDate: DateTime.now().add(const Duration(days: 3 * 365)),
+      firstDate: _range.start.isBefore(DateTime(2000))
+          ? _range.start
+          : DateTime(2000),
+      lastDate: _latest(
+        DateTime.now().add(const Duration(days: 3 * 365)),
+        _range.end,
+      ),
     );
     if (r != null) setState(() => _range = r);
   }
 
   Future<void> _save() async {
     final note = _note.text.trim();
-    await context.read<AppState>().upsertAbsence(Absence(
-          id: widget.absence?.id ?? newId(),
-          type: _type,
-          from: _range.start,
-          to: _range.end,
-          note: note.isEmpty ? null : note,
-        ));
+    await context.read<AppState>().upsertAbsence(
+      Absence(
+        id: widget.absence?.id ?? newId(),
+        type: _type,
+        from: _range.start,
+        to: _range.end,
+        note: note.isEmpty ? null : note,
+      ),
+    );
     if (mounted) Navigator.pop(context);
   }
 
@@ -172,10 +216,30 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
   @override
   Widget build(BuildContext context) {
     final single = _range.start == _range.end;
+    final calc = context.watch<AppState>().calc;
+    final draft = Absence(
+      id: '',
+      type: _type,
+      from: _range.start,
+      to: _range.end,
+    );
+    // Halbe Feiertage im Zeitraum: dort zählt die Abwesenheit nur halb.
+    final halfDays = [
+      for (
+        var d = _range.start;
+        !d.isAfter(_range.end);
+        d = DateTime(d.year, d.month, d.day + 1)
+      )
+        if (calc.settings.workdays.contains(d.weekday) &&
+            calc.halfHolidayFor(d) != null)
+          calc.halfHolidayFor(d)!,
+    ];
     return AlertDialog(
-      title: Text(widget.absence == null
-          ? 'Abwesenheit eintragen'
-          : 'Abwesenheit bearbeiten'),
+      title: Text(
+        widget.absence == null
+            ? 'Abwesenheit eintragen'
+            : 'Abwesenheit bearbeiten',
+      ),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -188,6 +252,7 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
                 for (final t in AbsenceType.editable)
                   ChoiceChip(
                     mouseCursor: clickCursor,
+                    showCheckmark: false,
                     avatar: Icon(absenceIcon(t), size: 18),
                     label: Text(t.label),
                     selected: _type == t,
@@ -200,11 +265,23 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.date_range),
               title: Text(single ? 'Tag' : 'Zeitraum'),
-              subtitle: Text(single
-                  ? formatDate(_range.start)
-                  : '${formatDateShort(_range.start)} – ${formatDateShort(_range.end)}'),
+              subtitle: Text(
+                '${single ? formatDate(_range.start) : '${formatDateShort(_range.start)} – ${formatDateShort(_range.end)}'}'
+                '\n${formatWorkdays(calc.workdaysOf(draft))}',
+              ),
               onTap: _pickRange,
             ),
+            if (halfDays.isNotEmpty)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(absenceIcon(AbsenceType.holiday)),
+                title: Text(halfDays.map((h) => h.label).join(', ')),
+                subtitle: Text(
+                  halfDays.length == 1 && single
+                      ? 'Halber Feiertag – nur ein halber Tag ${_type.label}'
+                      : 'Halbe Feiertage – zählen nur als halber Tag',
+                ),
+              ),
             TextField(
               controller: _note,
               decoration: const InputDecoration(labelText: 'Notiz (optional)'),
@@ -216,12 +293,15 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
         if (widget.absence != null)
           TextButton(
             onPressed: _delete,
-            child: Text('Löschen',
-                style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            child: Text(
+              'Löschen',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
         TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Abbrechen')),
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Abbrechen'),
+        ),
         FilledButton(onPressed: _save, child: const Text('Speichern')),
       ],
     );

@@ -77,6 +77,7 @@ class Absence {
     required DateTime from,
     required DateTime to,
     this.note,
+    this.half = false,
   })  : from = dayOf(from),
         to = dayOf(to);
 
@@ -85,6 +86,10 @@ class Absence {
   DateTime from;
   DateTime to;
   String? note;
+
+  /// Halber Feiertag (Heiligabend/Silvester) – nur bei Feiertagen, die
+  /// automatisch berechnet und nicht gespeichert werden.
+  final bool half;
 
   bool get isHoliday => type == AbsenceType.holiday;
 
@@ -126,6 +131,7 @@ class Settings {
     this.absenceWorkFactor = 1,
     this.reminderMinutes,
     this.targetReminder = true,
+    this.halfHolidays = true,
   })  : workdays = workdays ?? {1, 2, 3, 4, 5},
         startDate = dayOf(startDate ?? DateTime.now());
 
@@ -162,6 +168,10 @@ class Settings {
   /// sind (nicht an Feiertagen und bei Abwesenheit).
   bool targetReminder;
 
+  /// Heiligabend und Silvester als halbe Feiertage: an diesen Tagen gilt
+  /// nur die Hälfte der Tagesstunden.
+  bool halfHolidays;
+
   int get dailyTargetMinutes => (dailyHours * 60).round();
 
   Map<String, dynamic> toJson() => {
@@ -175,6 +185,7 @@ class Settings {
         'absenceWorkFactor': absenceWorkFactor,
         if (reminderMinutes != null) 'reminderMinutes': reminderMinutes,
         'targetReminder': targetReminder,
+        'halfHolidays': halfHolidays,
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
@@ -193,6 +204,7 @@ class Settings {
             (j['absenceWorkFactor'] as num?)?.toDouble() ?? 1,
         reminderMinutes: (j['reminderMinutes'] as num?)?.toInt(),
         targetReminder: j['targetReminder'] as bool? ?? true,
+        halfHolidays: j['halfHolidays'] as bool? ?? true,
       );
 }
 

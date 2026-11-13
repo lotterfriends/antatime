@@ -21,6 +21,7 @@ const syncedSettings = [
   'startDate',
   'federalState',
   'absenceWorkFactor',
+  'halfHolidays',
 ];
 
 Map<String, String> recordsOf(AppData data) {

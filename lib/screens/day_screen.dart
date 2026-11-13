@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../app_state.dart';
 import '../format.dart';
+import '../models.dart';
 import '../widgets/day_timeline.dart';
 import '../widgets/session_editor.dart';
 import 'absences_screen.dart';
@@ -64,6 +65,12 @@ class DayScreen extends StatelessWidget {
               ),
             ),
           ),
+          if (stats.halfHoliday != null)
+            ListTile(
+              leading: Icon(absenceIcon(AbsenceType.holiday)),
+              title: Text(stats.halfHoliday!.label),
+              subtitle: const Text('Halber Feiertag – halbes Soll'),
+            ),
           if (stats.absence != null)
             ListTile(
               leading: Icon(absenceIcon(stats.absence!.type)),

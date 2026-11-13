@@ -140,6 +140,9 @@ class _DayRow extends StatelessWidget {
           ' · ${formatDuration(s.worked)} h'
           '${s.breaks > Duration.zero ? ' · Pause ${formatDuration(s.breaks)}' : ''}';
     }
+    if (s.absence == null && s.halfHoliday != null) {
+      subtitle = '${s.halfHoliday!.label} (halber Feiertag) · $subtitle';
+    }
 
     return ListTile(
       leading: CircleAvatar(
