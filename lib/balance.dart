@@ -10,6 +10,10 @@ class DayStats {
     required this.absence,
     this.halfHoliday,
     this.absenceWorkFactor = 1,
+    this.lateWorked = Duration.zero,
+    this.lateWorkMinutes,
+    this.lateWorkFactor = 1,
+    this.stackWorkFactors = false,
   });
 
   final DateTime day;
@@ -28,17 +32,50 @@ class DayStats {
   /// Faktor für Arbeit an Abwesenheitstagen (Einstellung).
   final double absenceWorkFactor;
 
-  /// Faktor, mit dem die Arbeitszeit dieses Tages ins Konto eingeht:
-  /// an Feiertagen, im Urlaub und bei anderer Abwesenheit der eingestellte
-  /// Faktor, sonst (auch bei Krankheit) 1.
-  double get workFactor =>
+  /// Arbeitszeit nach [lateWorkMinutes] (ohne Pausen).
+  final Duration lateWorked;
+
+  /// Uhrzeit (Minuten nach Mitternacht), ab der der Spätarbeits-Faktor gilt
+  /// (`null` = aus).
+  final int? lateWorkMinutes;
+
+  /// Faktor für Arbeit nach [lateWorkMinutes] (Einstellung).
+  final double lateWorkFactor;
+
+  /// Zuschläge beider Faktoren addieren statt nur den höheren zu nehmen.
+  final bool stackWorkFactors;
+
+  /// Faktor, mit dem die Arbeitszeit dieses Tages wegen einer Abwesenheit
+  /// ins Konto eingeht: an Feiertagen, im Urlaub und bei anderer
+  /// Abwesenheit der eingestellte Faktor, sonst (auch bei Krankheit) 1.
+  double get absenceFactor =>
       absence != null && absence!.type != AbsenceType.sick
           ? absenceWorkFactor
           : 1;
 
-  /// Zusätzlich gutgeschriebene Zeit durch den Faktor (0 bei Faktor 1).
-  Duration get bonus => Duration(
-      microseconds: (worked.inMicroseconds * (workFactor - 1)).round());
+  /// Faktor für die Arbeit nach [lateWorkMinutes] (1 = aus).
+  double get lateFactor => lateWorkMinutes == null ? 1 : lateWorkFactor;
+
+  /// Zuschlag durch den Abwesenheits-Faktor (0 bei Faktor 1).
+  /// Pausen sind keine Arbeitszeit und bekommen keinen Zuschlag.
+  Duration get absenceBonus => Duration(
+      microseconds: (worked.inMicroseconds * (absenceFactor - 1)).round());
+
+  /// Zuschlag durch den Spätarbeits-Faktor (0 bei Faktor 1). Gilt an dem
+  /// Tag auch ein Abwesenheits-Faktor, addieren sich die Zuschläge nur bei
+  /// [stackWorkFactors]; sonst zählt die Abendarbeit mit dem höheren Faktor
+  /// (der Abend-Zuschlag ist dann nur der Teil über dem Abwesenheits-Faktor).
+  Duration get lateBonus {
+    final extra = stackWorkFactors
+        ? lateFactor - 1
+        : (lateFactor > absenceFactor ? lateFactor : absenceFactor) -
+            absenceFactor;
+    return Duration(
+        microseconds: (lateWorked.inMicroseconds * extra).round());
+  }
+
+  /// Zusätzlich gutgeschriebene Zeit durch die Faktoren.
+  Duration get bonus => absenceBonus + lateBonus;
 
   bool get isWorkday => target > Duration.zero;
 
@@ -188,7 +225,27 @@ class BalanceCalculator {
       absence: absenceFor(d),
       halfHoliday: halfHolidayFor(d),
       absenceWorkFactor: settings.absenceWorkFactor,
+      lateWorked: _lateWorked(d, sessions),
+      lateWorkMinutes: settings.lateWorkMinutes,
+      lateWorkFactor: settings.lateWorkFactor,
+      stackWorkFactors: settings.stackWorkFactors,
     );
+  }
+
+  /// Arbeitszeit des Tages nach der eingestellten Uhrzeit. Läuft eine
+  /// Arbeitszeit über Mitternacht, zählt auch die Zeit danach als spät.
+  Duration _lateWorked(DateTime day, List<WorkSession> sessions) {
+    final minutes = settings.lateWorkMinutes;
+    if (minutes == null) return Duration.zero;
+    final from = DateTime(day.year, day.month, day.day, 0, minutes);
+    var total = Duration.zero;
+    for (final s in sessions) {
+      final end = s.end ?? now;
+      if (!end.isAfter(from)) continue;
+      final start = s.start.isAfter(from) ? s.start : from;
+      total += end.difference(start);
+    }
+    return total;
   }
 
   /// Stundenkonto inkl. Startwert.

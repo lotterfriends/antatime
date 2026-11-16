@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../app_state.dart';
+import '../csv_export.dart';
+import '../format.dart';
 import '../models.dart';
 import '../repository.dart';
 
@@ -23,6 +25,13 @@ class BackupTiles extends StatelessWidget {
           subtitle: const Text(
               'Arbeitszeiten, Abwesenheiten und Einstellungen als Datei sichern'),
           onTap: () => _export(context),
+        ),
+        ListTile(
+          leading: const Icon(Icons.table_chart_outlined),
+          title: const Text('Als CSV exportieren'),
+          subtitle: const Text(
+              'Arbeitszeiten eines Zeitraums als Tabelle, z. B. für Excel'),
+          onTap: () => _exportCsv(context),
         ),
         ListTile(
           leading: const Icon(Icons.file_download_outlined),
@@ -51,6 +60,43 @@ class BackupTiles extends StatelessWidget {
     } catch (e) {
       messenger.showSnackBar(
           SnackBar(content: Text('Export fehlgeschlagen: $e')));
+    }
+  }
+
+  Future<void> _exportCsv(BuildContext context) async {
+    final state = context.read<AppState>();
+    final messenger = ScaffoldMessenger.of(context);
+    final today = dayOf(DateTime.now());
+    final range = await showDateRangePicker(
+      context: context,
+      helpText: 'Zeitraum für den CSV-Export',
+      saveText: 'Weiter',
+      // Vorschlag: aktueller Monat bis heute.
+      initialDateRange:
+          DateTimeRange(start: DateTime(today.year, today.month), end: today),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(today.year + 3, 12, 31),
+    );
+    if (range == null) return;
+    final from = dayOf(range.start);
+    final to = dayOf(range.end);
+    final csv = exportCsv(state.data, from, to);
+    final fileName = 'antatime-${dayKey(from)}-bis-${dayKey(to)}.csv';
+    try {
+      final uri = await FilePicker.saveFile(
+        dialogTitle: 'CSV-Export speichern',
+        fileName: fileName,
+        // Mit BOM, damit Excel die Umlaute als UTF-8 erkennt.
+        bytes: Uint8List.fromList([0xEF, 0xBB, 0xBF, ...utf8.encode(csv)]),
+        mimeType: 'text/csv',
+      );
+      if (uri == null) return;
+      messenger.showSnackBar(SnackBar(
+          content: Text('CSV-Export gespeichert '
+              '(${formatDateShort(from)} – ${formatDateShort(to)})')));
+    } catch (e) {
+      messenger.showSnackBar(
+          SnackBar(content: Text('CSV-Export fehlgeschlagen: $e')));
     }
   }
 

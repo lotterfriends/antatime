@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../balance.dart';
 import '../format.dart';
 import '../models.dart';
+import '../widgets/day_bars.dart';
 import '../widgets/session_editor.dart';
 import 'day_screen.dart';
 
@@ -44,6 +45,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
       days.add(calc.statsFor(d));
     }
     final monthWorked = days.fold(Duration.zero, (s, d) => s + d.worked);
+    // Gemeinsamer Maßstab, damit die Tagesbalken vergleichbar sind.
+    var barScale = Duration(minutes: state.data.settings.dailyTargetMinutes);
+    for (final d in days) {
+      for (final v in [d.worked, workTargetOf(d)]) {
+        if (v > barScale) barScale = v;
+      }
+    }
     final monthDiff = calc.diffBetween(_month, lastOfMonth);
     final isCurrentMonth =
         _month.year == today.year && _month.month == today.month;
@@ -98,6 +106,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       stats: days[i],
                       counted: !days[i].day.isBefore(state.data.settings.startDate),
                       isToday: days[i].day == today,
+                      barScale: barScale,
                     ),
                   ),
           ),
@@ -112,11 +121,13 @@ class _DayRow extends StatelessWidget {
     required this.stats,
     required this.counted,
     required this.isToday,
+    required this.barScale,
   });
 
   final DayStats stats;
   final bool counted;
   final bool isToday;
+  final Duration barScale;
 
   @override
   Widget build(BuildContext context) {
@@ -152,7 +163,17 @@ class _DayRow extends StatelessWidget {
         child: Text(weekdayShort[s.day.weekday - 1]),
       ),
       title: Text(formatDateShort(s.day) + (isToday ? ' (heute)' : '')),
-      subtitle: Text(subtitle),
+      subtitle: s.worked > Duration.zero || workTargetOf(s) > Duration.zero
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(subtitle),
+                const SizedBox(height: 6),
+                DayProgressBar(stats: s, scale: barScale),
+              ],
+            )
+          : Text(subtitle),
       trailing: showDiff
           ? Text(formatSigned(diff),
               style: theme.textTheme.titleMedium?.copyWith(

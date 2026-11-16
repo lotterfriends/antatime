@@ -48,9 +48,14 @@ class DayScreen extends StatelessWidget {
               child: Column(
                 children: [
                   row('Gearbeitet', formatDuration(stats.worked)),
-                  if (stats.bonus != Duration.zero)
-                    row('Zuschlag (× ${formatFactor(stats.workFactor)})',
-                        formatDuration(stats.bonus)),
+                  if (stats.absenceBonus != Duration.zero)
+                    row('Zuschlag ${stats.absence!.label} '
+                            '(× ${formatFactor(stats.absenceFactor)})',
+                        formatSigned(stats.absenceBonus)),
+                  if (stats.lateBonus != Duration.zero)
+                    row('Zuschlag ab ${formatMinutesOfDay(stats.lateWorkMinutes!)} Uhr '
+                            '(× ${formatFactor(stats.lateFactor)})',
+                        formatSigned(stats.lateBonus)),
                   row('Pausen', formatDuration(stats.breaks)),
                   row('Soll', formatDuration(stats.target)),
                   if (stats.credited > Duration.zero)

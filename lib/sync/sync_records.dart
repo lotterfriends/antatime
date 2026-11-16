@@ -21,6 +21,9 @@ const syncedSettings = [
   'startDate',
   'federalState',
   'absenceWorkFactor',
+  'lateWorkMinutes',
+  'lateWorkFactor',
+  'stackWorkFactors',
   'halfHolidays',
 ];
 

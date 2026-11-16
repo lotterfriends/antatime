@@ -160,6 +160,77 @@ class SettingsScreen extends StatelessWidget {
               }
             },
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.nightlight_outlined),
+            title: const Text('Faktor für Arbeit am Abend'),
+            subtitle: Text(s.lateWorkMinutes == null
+                ? 'Arbeit ab einer bestimmten Uhrzeit zählt mehrfach'
+                : 'Arbeit ab ${formatMinutesOfDay(s.lateWorkMinutes!)} Uhr '
+                    'zählt × ${formatFactor(s.lateWorkFactor)}'),
+            value: s.lateWorkMinutes != null,
+            onChanged: (v) async {
+              if (!v) {
+                await state.updateSettings((x) => x.lateWorkMinutes = null);
+                return;
+              }
+              final m = await _pickTime(context, 20 * 60, 'Faktor gilt ab');
+              if (m == null || !context.mounted) return;
+              final f = await _askFactor(
+                  context, s.lateWorkFactor == 1 ? 1.5 : s.lateWorkFactor,
+                  lateWork: true);
+              if (f == null) return;
+              await state.updateSettings((x) {
+                x.lateWorkMinutes = m;
+                x.lateWorkFactor = f;
+              });
+            },
+          ),
+          if (s.lateWorkMinutes != null) ...[
+            ListTile(
+              leading: const SizedBox(width: 24),
+              title: const Text('Ab Uhrzeit'),
+              trailing: Text('${formatMinutesOfDay(s.lateWorkMinutes!)} Uhr',
+                  style: theme.textTheme.titleMedium),
+              onTap: () async {
+                final m = await _pickTime(
+                    context, s.lateWorkMinutes!, 'Faktor gilt ab');
+                if (m != null) {
+                  await state.updateSettings((x) => x.lateWorkMinutes = m);
+                }
+              },
+            ),
+            ListTile(
+              leading: const SizedBox(width: 24),
+              title: const Text('Faktor'),
+              trailing: Text('× ${formatFactor(s.lateWorkFactor)}',
+                  style: theme.textTheme.titleMedium),
+              onTap: () async {
+                final v = await _askFactor(context, s.lateWorkFactor,
+                    lateWork: true);
+                if (v != null) {
+                  await state.updateSettings((x) => x.lateWorkFactor = v);
+                }
+              },
+            ),
+          ],
+          if (s.absenceWorkFactor > 1 &&
+              s.lateWorkMinutes != null &&
+              s.lateWorkFactor > 1)
+            SwitchListTile(
+              secondary: const Icon(Icons.add_circle_outline),
+              title: const Text('Faktoren addieren'),
+              subtitle: Text(_stackExample(s)),
+              value: s.stackWorkFactors,
+              onChanged: (v) =>
+                  state.updateSettings((x) => x.stackWorkFactors = v),
+            ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Text(
+              'Faktoren gelten nur für die Arbeitszeit, nicht für Pausen.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
           _Section('Feiertage'),
           ListTile(
             leading: const Icon(Icons.celebration_outlined),
@@ -224,7 +295,7 @@ class SettingsScreen extends StatelessWidget {
               ListTile(
                 leading: const SizedBox(width: 24),
                 title: const Text('Uhrzeit der Erinnerung'),
-                trailing: Text('${_formatMinutes(s.reminderMinutes!)} Uhr',
+                trailing: Text('${formatMinutesOfDay(s.reminderMinutes!)} Uhr',
                     style: theme.textTheme.titleMedium),
                 onTap: () async {
                   final m =
@@ -340,22 +411,34 @@ class _Section extends StatelessWidget {
       );
 }
 
-String _formatMinutes(int minutes) =>
-    '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
-    '${(minutes % 60).toString().padLeft(2, '0')}';
+/// Erklärt am Beispiel einer Abendstunde an einem Feiertag, wie die beiden
+/// Faktoren zusammenwirken.
+String _stackExample(Settings s) {
+  final a = s.absenceWorkFactor, l = s.lateWorkFactor;
+  final combined = s.stackWorkFactors ? a + l - 1 : (a > l ? a : l);
+  return 'Abends an Abwesenheitstagen: '
+      '${s.stackWorkFactors ? 'Zuschläge addieren sich' : 'nur der höhere Faktor zählt'}'
+      ' – eine Stunde zählt ${formatFactor(combined)} h';
+}
 
 /// Uhrzeit für die Start-Erinnerung wählen (Minuten nach Mitternacht).
-Future<int?> _pickReminderTime(BuildContext context, int initial) async {
+Future<int?> _pickReminderTime(BuildContext context, int initial) =>
+    _pickTime(context, initial, 'Erinnerung um');
+
+/// Uhrzeit wählen (Minuten nach Mitternacht).
+Future<int?> _pickTime(BuildContext context, int initial, String help) async {
   final t = await showTimePicker(
     context: context,
     initialTime: TimeOfDay(hour: initial ~/ 60, minute: initial % 60),
-    helpText: 'Erinnerung um',
+    helpText: help,
   );
   return t == null ? null : t.hour * 60 + t.minute;
 }
 
-/// Fragt den Faktor für Arbeit an Abwesenheitstagen ab.
-Future<double?> _askFactor(BuildContext context, double initial) {
+/// Fragt den Faktor für Arbeit an Abwesenheitstagen bzw. – mit
+/// [lateWork] – für Arbeit am Abend ab.
+Future<double?> _askFactor(BuildContext context, double initial,
+    {bool lateWork = false}) {
   final controller = TextEditingController(text: formatFactor(initial));
   String? error;
   return showDialog<double>(
@@ -377,10 +460,13 @@ Future<double?> _askFactor(BuildContext context, double initial) {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                  'Wird an einem Feiertag, im Urlaub oder bei anderer '
-                  'Abwesenheit gearbeitet, zählt jede Stunde so oft ins '
-                  'Stundenkonto. 2 = doppelt, 1 = einfach.'),
+              Text(lateWork
+                  ? 'Jede Stunde Arbeit ab der eingestellten Uhrzeit zählt '
+                      'so oft ins Stundenkonto (Pausen nicht). '
+                      '2 = doppelt, 1 = einfach.'
+                  : 'Wird an einem Feiertag, im Urlaub oder bei anderer '
+                      'Abwesenheit gearbeitet, zählt jede Stunde so oft ins '
+                      'Stundenkonto (Pausen nicht). 2 = doppelt, 1 = einfach.'),
               TextField(
                 controller: controller,
                 autofocus: true,

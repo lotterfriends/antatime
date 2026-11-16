@@ -129,6 +129,9 @@ class Settings {
     this.showNotification = true,
     this.federalState,
     this.absenceWorkFactor = 1,
+    this.lateWorkMinutes,
+    this.lateWorkFactor = 1,
+    this.stackWorkFactors = false,
     this.reminderMinutes,
     this.targetReminder = true,
     this.halfHolidays = true,
@@ -159,6 +162,19 @@ class Settings {
   /// Abwesenheit (z. B. 1,5 oder 2). 1 = jede Stunde zählt einfach.
   double absenceWorkFactor;
 
+  /// Uhrzeit (Minuten nach Mitternacht), ab der Arbeit mit
+  /// [lateWorkFactor] zählt (`null` = kein Spätarbeits-Faktor).
+  int? lateWorkMinutes;
+
+  /// Faktor für Arbeit nach [lateWorkMinutes] (z. B. 1,25 oder 1,5).
+  /// Gilt nur für die Arbeitszeit selbst, nicht für Pausen.
+  double lateWorkFactor;
+
+  /// Treffen Abwesenheits- und Abend-Faktor zusammen (z. B. abends an einem
+  /// Feiertag): `true` = die Zuschläge addieren sich, `false` = es gilt nur
+  /// der höhere Faktor.
+  bool stackWorkFactors;
+
   /// Uhrzeit (Minuten nach Mitternacht), zu der an Arbeitstagen an den
   /// Start der Zeiterfassung erinnert wird, falls noch nicht gestartet
   /// (`null` = keine Erinnerung).
@@ -184,6 +200,9 @@ class Settings {
         'showNotification': showNotification,
         if (federalState != null) 'federalState': federalState!.name,
         'absenceWorkFactor': absenceWorkFactor,
+        if (lateWorkMinutes != null) 'lateWorkMinutes': lateWorkMinutes,
+        'lateWorkFactor': lateWorkFactor,
+        'stackWorkFactors': stackWorkFactors,
         if (reminderMinutes != null) 'reminderMinutes': reminderMinutes,
         'targetReminder': targetReminder,
         'halfHolidays': halfHolidays,
@@ -203,6 +222,9 @@ class Settings {
         federalState: FederalState.byName(j['federalState'] as String?),
         absenceWorkFactor:
             (j['absenceWorkFactor'] as num?)?.toDouble() ?? 1,
+        lateWorkMinutes: (j['lateWorkMinutes'] as num?)?.toInt(),
+        lateWorkFactor: (j['lateWorkFactor'] as num?)?.toDouble() ?? 1,
+        stackWorkFactors: j['stackWorkFactors'] as bool? ?? false,
         reminderMinutes: (j['reminderMinutes'] as num?)?.toInt(),
         targetReminder: j['targetReminder'] as bool? ?? true,
         halfHolidays: j['halfHolidays'] as bool? ?? true,

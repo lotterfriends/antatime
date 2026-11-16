@@ -73,3 +73,8 @@ double? parseFactor(String input) {
   if (v == null || v <= 0 || v > 10) return null;
   return v;
 }
+
+/// Uhrzeit aus Minuten nach Mitternacht, z. B. „20:00“.
+String formatMinutesOfDay(int minutes) =>
+    '${(minutes ~/ 60).toString().padLeft(2, '0')}:'
+    '${(minutes % 60).toString().padLeft(2, '0')}';

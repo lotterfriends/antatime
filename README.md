@@ -19,16 +19,19 @@ Arbeitszeiterfassung mit Stundenkonto – als Flutter-App für **Android**, **iP
 - Verlauf pro Monat mit Tages- und Monatssaldo
 - **Synchronisation** (optional) zwischen mehreren Geräten über einen eigenen [AnTaTime-Server](../antatime-server) – Ende-zu-Ende-verschlüsselt, Änderungen erscheinen sofort auf allen offenen Geräten (siehe unten). Nach Netzwerkwechseln oder Unterbrechungen verbindet sich die App selbst neu; im Browser hält nur ein Tab die Verbindung, die anderen übernehmen dessen Änderungen
 - **Export / Import** aller Arbeitszeiten, Abwesenheiten und Einstellungen als JSON-Datei (Einstellungen → Daten). Der Import ersetzt alle vorhandenen Daten.
+- **CSV-Export** für einen frei wählbaren Zeitraum (Einstellungen → Daten → „Als CSV exportieren“): eine Zeile je Tag mit Beginn, Ende, Arbeitszeit, Pausen, Soll, Zuschlägen, Abwesenheit, Differenz und Notizen sowie eine Summenzeile. Semikolon als Trennzeichen, Stunden als Dezimalzahl mit Komma (z. B. 8,50) – öffnet sich direkt in Excel/LibreOffice. Die Differenz zählt wie im Stundenkonto nur ab dem Erfassungsbeginn bis heute
 
 ### Berechnung des Stundenkontos
 
 ```
-Stundenkonto = Startwert + Σ (gearbeitet × Faktor + Abwesenheits-Gutschrift − Soll) je Tag ab Erfassungsbeginn
+Stundenkonto = Startwert + Σ (gearbeitet + Zuschläge + Abwesenheits-Gutschrift − Soll) je Tag ab Erfassungsbeginn
 ```
 
 - Soll an Arbeitstagen = Tagesstunden, an freien Tagen = 0 (Arbeit dort zählt komplett als Plus)
 - Arbeitstag ohne Eintrag → die Tagesstunden gehen ins Minus
 - Arbeit an Feiertagen, im Urlaub oder bei anderer Abwesenheit zählt komplett als Überstunden – mit einstellbarem **Faktor** (Standard 1, z. B. 1,5 oder 2 = jede Stunde zählt anderthalb- bzw. doppelt). Bei Krankheit gilt immer Faktor 1
+- **Faktor für Arbeit am Abend** (optional): ab einer frei wählbaren Uhrzeit (z. B. 20:00) zählt jede Arbeitsstunde mit einstellbarem Faktor; über Mitternacht gilt er weiter. Treffen Abend- und Abwesenheits-Faktor zusammen, zählt standardmäßig nur der höhere; optional („Faktoren addieren“, erscheint, sobald beide Faktoren über 1 liegen) addieren sich die Zuschläge
+- Beide Faktoren gelten nur für die Arbeitszeit – Pausen (Lücken zwischen Arbeitszeiten) zählen nie und bekommen keinen Zuschlag
 - Beispiel: 8 h Soll, 9 h gearbeitet → +1 h; 7 h gearbeitet → −1 h
 - **Heute** zählt erst nach Tagesende negativ, Überstunden von heute werden sofort angerechnet
 - Änderungen an Tages-/Wochenstunden oder Arbeitstagen gelten rückwirkend für den gesamten Zeitraum

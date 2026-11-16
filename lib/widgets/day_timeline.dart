@@ -6,6 +6,7 @@ import '../click_cursor.dart';
 import '../balance.dart';
 import '../format.dart';
 import '../models.dart';
+import 'day_bars.dart';
 import 'session_editor.dart';
 
 /// Liste der Arbeitszeiten eines Tages inkl. Pausen dazwischen.
@@ -39,7 +40,10 @@ class DayTimeline extends StatelessWidget {
         ),
       );
     }
-    return Column(children: children);
+    return Column(children: [
+      if (sessions.isNotEmpty) DayTimeBar(stats: stats, now: now),
+      ...children,
+    ]);
   }
 }
 
