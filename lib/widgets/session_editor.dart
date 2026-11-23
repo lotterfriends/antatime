@@ -37,6 +37,8 @@ class _SessionEditorState extends State<_SessionEditor> {
   late bool _running;
   late final TextEditingController _note;
   String? _error;
+  bool _saving = false;
+  final String _newId = newId();
 
   bool get _isEdit => widget.session != null;
 
@@ -88,52 +90,68 @@ class _SessionEditorState extends State<_SessionEditor> {
     if (t != null) setState(() => _end = t);
   }
 
+  /// Ende vor Beginn → über Mitternacht gearbeitet (Ende am Folgetag).
+  bool get _overnight =>
+      !_running &&
+      _end != null &&
+      (_end!.hour * 60 + _end!.minute) < (_start.hour * 60 + _start.minute);
+
+  /// Uhrzeit aus dem Editor; unverändert übernommene Zeiten behalten ihre
+  /// Sekunden (sonst würde schon das Bearbeiten der Notiz sie abschneiden).
+  DateTime _time(DateTime day, TimeOfDay t, DateTime? original) {
+    final d = _combine(day, t);
+    if (original != null &&
+        d == DateTime(original.year, original.month, original.day,
+            original.hour, original.minute)) {
+      return original;
+    }
+    return d;
+  }
+
   Future<void> _save() async {
+    if (_saving) return;
     final state = context.read<AppState>();
-    final start = _combine(_day, _start);
+    final original = widget.session;
+    final start = _time(_day, _start, original?.start);
     DateTime? end;
     if (!_running) {
       if (_end == null) {
         setState(() => _error = 'Bitte ein Ende angeben.');
         return;
       }
-      end = _combine(_day, _end!);
-      // Ende vor Beginn → über Mitternacht gearbeitet.
-      if (!end.isAfter(start)) {
-        end = DateTime(end.year, end.month, end.day + 1, end.hour, end.minute);
-      }
-    } else {
-      if (start.isAfter(DateTime.now())) {
-        setState(() => _error = 'Beginn liegt in der Zukunft.');
-        return;
-      }
-      final other = state.data.running;
-      if (other != null && other.id != widget.session?.id) {
-        setState(() => _error = 'Es läuft bereits eine andere Arbeitszeit.');
+      final endDay = _overnight
+          ? DateTime(_day.year, _day.month, _day.day + 1)
+          : _day;
+      end = _time(endDay, _end!, original?.end);
+      if (_overnight && end.difference(start) > maxOvernight) {
+        setState(() => _error = 'Ende liegt vor dem Beginn.');
         return;
       }
     }
-
-    // Überschneidungen prüfen.
-    for (final o in state.data.sessions) {
-      if (o.id == widget.session?.id) continue;
-      final oEnd = o.end ?? DateTime.now();
-      final thisEnd = end ?? DateTime.now();
-      if (start.isBefore(oEnd) && thisEnd.isAfter(o.start)) {
-        setState(() => _error =
-            'Überschneidet sich mit ${formatTime(o.start)}–${o.end == null ? 'jetzt' : formatTime(o.end!)}.');
-        return;
-      }
-    }
-
     final note = _note.text.trim();
-    await state.upsertSession(WorkSession(
-      id: widget.session?.id ?? newId(),
-      start: start,
-      end: end,
-      note: note.isEmpty ? null : note,
-    ));
-    if (mounted) Navigator.pop(context);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final error = await state.upsertSession(
+      WorkSession(
+        // Einmal vergeben: Ein zweiter Klick legt keinen zweiten Eintrag an.
+        id: original?.id ?? _newId,
+        start: start,
+        end: end,
+        note: note.isEmpty ? null : note,
+      ),
+      original: original?.copy(),
+    );
+    if (!mounted) return;
+    if (error != null) {
+      setState(() {
+        _saving = false;
+        _error = error;
+      });
+      return;
+    }
+    Navigator.pop(context);
   }
 
   Future<void> _delete() async {
@@ -194,7 +212,11 @@ class _SessionEditorState extends State<_SessionEditor> {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.stop),
                 title: const Text('Ende'),
-                subtitle: Text(_end?.format(context) ?? '–'),
+                subtitle: Text(_end == null
+                    ? '–'
+                    : _overnight
+                        ? '${_end!.format(context)} (am nächsten Tag)'
+                        : _end!.format(context)),
                 onTap: _pickEnd,
               ),
             TextField(
@@ -220,7 +242,9 @@ class _SessionEditorState extends State<_SessionEditor> {
         TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Abbrechen')),
-        FilledButton(onPressed: _save, child: const Text('Speichern')),
+        FilledButton(
+            onPressed: _saving ? null : _save,
+            child: const Text('Speichern')),
       ],
     );
   }

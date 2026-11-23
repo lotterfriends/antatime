@@ -140,19 +140,32 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await _syncNotification();
   }
 
-  Future<void> upsertSession(WorkSession session) async {
-    await _repo.exclusive(() async {
+  /// Speichert eine neue oder bearbeitete Arbeitszeit, falls sie zu den
+  /// aktuellen Daten passt (siehe [validateSession]) – geprüft unter der
+  /// Sperre, nachdem frisch geladen wurde. Gibt sonst die Fehlermeldung
+  /// zurück.
+  Future<String?> upsertSession(
+    WorkSession session, {
+    WorkSession? original,
+  }) async {
+    final error = await _repo.exclusive(() async {
       data = await _repo.load();
+      now = DateTime.now();
+      final error = validateSession(data, session, now, original: original);
+      if (error != null) return error;
       final i = data.sessions.indexWhere((s) => s.id == session.id);
       if (i >= 0) {
         data.sessions[i] = session;
       } else {
         data.sessions.add(session);
       }
+      data.sessions.sort((a, b) => a.start.compareTo(b.start));
       await _repo.saveSessions(data.sessions);
+      return null;
     });
     _changed();
-    await _syncNotification();
+    if (error == null) await _syncNotification();
+    return error;
   }
 
   Future<void> deleteSession(String id) async {

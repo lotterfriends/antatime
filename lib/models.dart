@@ -331,3 +331,53 @@ class AppData {
     return true;
   }
 }
+
+/// Längste Arbeitszeit, die als „über Mitternacht“ gilt; längere Angaben
+/// mit Ende vor Beginn sind eher Tippfehler.
+const maxOvernight = Duration(hours: 16);
+
+/// Prüft eine bearbeitete oder neue Arbeitszeit [s] gegen [data] (ohne sie
+/// selbst). [original] ist der Stand beim Öffnen des Editors (`null` = neu):
+/// Wurde die Arbeitszeit inzwischen anderswo geändert (Benachrichtigung,
+/// Tray, anderes Gerät), wird nicht überschrieben.
+/// Gibt eine Fehlermeldung zurück oder `null`, wenn alles passt.
+String? validateSession(AppData data, WorkSession s, DateTime now,
+    {WorkSession? original}) {
+  if (original != null) {
+    final current = data.sessions.where((x) => x.id == s.id).firstOrNull;
+    if (current == null) {
+      return 'Die Arbeitszeit wurde inzwischen gelöscht.';
+    }
+    if (current.start != original.start || current.end != original.end) {
+      return current.isRunning == original.isRunning
+          ? 'Die Arbeitszeit wurde inzwischen geändert. Bitte erneut öffnen.'
+          : current.isRunning
+              ? 'Die Arbeitszeit wurde inzwischen fortgesetzt. Bitte erneut öffnen.'
+              : 'Die Arbeitszeit wurde inzwischen beendet. Bitte erneut öffnen.';
+    }
+  }
+  if (s.start.isAfter(now)) return 'Beginn liegt in der Zukunft.';
+  final end = s.end;
+  if (end != null) {
+    if (!end.isAfter(s.start)) return 'Ende muss nach dem Beginn liegen.';
+    if (end.isAfter(now)) return 'Ende liegt in der Zukunft.';
+  } else {
+    final other = data.running;
+    if (other != null && other.id != s.id) {
+      return 'Es läuft bereits eine andere Arbeitszeit.';
+    }
+  }
+  for (final o in data.sessions) {
+    if (o.id == s.id) continue;
+    final oEnd = o.end ?? now;
+    final thisEnd = end ?? now;
+    if (s.start.isBefore(oEnd) && thisEnd.isAfter(o.start)) {
+      return 'Überschneidet sich mit ${_hm(o.start)}–'
+          '${o.end == null ? 'jetzt' : _hm(o.end!)}.';
+    }
+  }
+  return null;
+}
+
+String _hm(DateTime t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
