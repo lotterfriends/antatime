@@ -110,6 +110,10 @@ void main() {
       final timed =
           decodeServerMessage(Uint8List.fromList([0x82, 3, 0x80, 0x01]));
       expect((timed as SyncedMessage).serverTime, 128);
+      expect(timed.epoch, isNull);
+      final withEpoch =
+          decodeServerMessage(Uint8List.fromList([0x82, 3, 0x80, 0x01, 7]));
+      expect((withEpoch as SyncedMessage).epoch, 7);
       expect(decodeServerMessage(Uint8List.fromList([0x85])),
           isA<VaultDeletedMessage>());
       expect(() => decodeServerMessage(Uint8List.fromList([0x81, 1])),

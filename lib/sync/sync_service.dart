@@ -739,12 +739,12 @@ class SyncService extends ChangeNotifier {
             _onClosed(gen, 'Änderungen konnten nicht gespeichert werden');
           }
         });
-      case SyncedMessage(:final headSeq, :final serverTime):
+      case SyncedMessage(:final headSeq, :final serverTime, :final epoch):
         if (serverTime != null) {
           clockOffset = Duration(
               milliseconds: DateTime.now().millisecondsSinceEpoch - serverTime);
         }
-        _enqueue(() => _onSynced(gen, headSeq));
+        _enqueue(() => _onSynced(gen, headSeq, epoch));
       case AckMessage(:final reqId, :final firstSeq):
         _enqueue(() => _onAck(gen, reqId, firstSeq));
       case PongMessage():
@@ -816,19 +816,24 @@ class SyncService extends ChangeNotifier {
     if (pushNeeded) _schedulePush();
   }
 
-  Future<void> _onSynced(int gen, int headSeq) async {
+  Future<void> _onSynced(int gen, int headSeq, [int? epoch]) async {
     if (gen != _generation) return;
     final st = await _loadState();
     // Nach jedem Warten erneut prüfen: Die Verbindung kann inzwischen
     // getrennt worden sein – dann darf sie nicht wieder als online gelten.
     if (gen != _generation || st == null || st.code != code) return;
-    if (headSeq < st.seq) {
-      // Der Server kennt weniger als wir (z. B. Datenbank neu aufgesetzt):
-      // alles erneut hochladen und vollständig neu abgleichen.
+    // Der Server kennt weniger als wir (z. B. Datenbank neu aufgesetzt) oder
+    // hat den Vault neu angelegt (z. B. nach Ablauf – die Sequenznummern
+    // beginnen dann von vorn, und HELLO hätte Datensätze übersprungen):
+    // alles erneut hochladen und vollständig neu abgleichen.
+    final newVault = epoch != null && st.epoch != null && st.epoch != epoch;
+    if (headSeq < st.seq || newVault) {
       await _store.exclusive(() async {
         final s = await _loadState();
         if (s == null) return;
-        s.resetRemote();
+        s
+          ..resetRemote()
+          ..epoch = epoch ?? s.epoch;
         await _saveState(s);
       });
       _onClosed(gen, null);
@@ -840,6 +845,7 @@ class SyncService extends ChangeNotifier {
       final data = await _store.load();
       final st = await _loadState();
       if (st == null || st.code != code) return;
+      if (epoch != null) st.epoch = epoch;
       st.diffLocal(recordsOf(data), null, await _madeAt());
       final joinRunning = _joinRunning;
       _joinRunning = null;

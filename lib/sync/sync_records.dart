@@ -128,6 +128,7 @@ class SyncState {
     required this.code,
     this.seq = 0,
     this.clock = 0,
+    this.epoch,
     Map<String, SyncEntry>? records,
   }) : records = records ?? {};
 
@@ -136,6 +137,9 @@ class SyncState {
 
   /// Höchste Sequenznummer des Servers, die vollständig übernommen ist.
   int seq;
+
+  /// Epoche des Vaults beim letzten Abgleich (siehe SyncedMessage.epoch).
+  int? epoch;
 
   /// Hybrid-Uhr: nie kleiner als ein bereits gesehener Zeitstempel.
   int clock;
@@ -254,6 +258,7 @@ class SyncState {
         'code': code,
         'seq': seq,
         'clock': clock,
+        if (epoch != null) 'epoch': epoch,
         'records': records.map((k, v) => MapEntry(k, v.toJson())),
       };
 
@@ -262,6 +267,7 @@ class SyncState {
         code: j['code'] as String,
         seq: (j['seq'] as num?)?.toInt() ?? 0,
         clock: (j['clock'] as num?)?.toInt() ?? 0,
+        epoch: (j['epoch'] as num?)?.toInt(),
         records: (j['records'] as Map<String, dynamic>? ?? const {}).map(
             (k, v) => MapEntry(k, SyncEntry.fromJson(v as List<dynamic>))),
       );

@@ -50,11 +50,16 @@ class ChangesMessage extends ServerMessage {
 }
 
 class SyncedMessage extends ServerMessage {
-  const SyncedMessage(this.headSeq, [this.serverTime]);
+  const SyncedMessage(this.headSeq, [this.serverTime, this.epoch]);
   final int headSeq;
 
   /// Uhrzeit des Servers (ms seit 1970); `null` bei älteren Servern.
   final int? serverTime;
+
+  /// Kennung des Vaults auf dem Server; ändert sich, wenn er neu angelegt
+  /// wurde (z. B. nach Ablauf) – die Sequenznummern beginnen dann von vorn.
+  /// `null` bei älteren Servern.
+  final int? epoch;
 }
 
 class AckMessage extends ServerMessage {
@@ -124,7 +129,9 @@ ServerMessage decodeServerMessage(Uint8List buf) {
       ]);
     case SyncOp.synced:
       final head = r.varint();
-      return SyncedMessage(head, r.pos < buf.length ? r.varint() : null);
+      final time = r.pos < buf.length ? r.varint() : null;
+      final epoch = r.pos < buf.length ? r.varint() : null;
+      return SyncedMessage(head, time, epoch);
     case SyncOp.ack:
       return AckMessage(r.varint(), r.varint());
     case SyncOp.pong:
