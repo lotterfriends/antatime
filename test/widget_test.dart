@@ -34,6 +34,10 @@ void main() {
     expect(find.text('AnTaTime'), findsWidgets);
     expect(find.text('Stundenkonto'), findsOneWidget);
     expect(find.text('Start'), findsOneWidget);
+    // Bildschirmleser: der Knopf ist beschriftet.
+    final semantics = tester.ensureSemantics();
+    expect(find.bySemanticsLabel('Arbeitszeit starten'), findsOneWidget);
+    semantics.dispose();
 
     await tester.runAsync(() => state.toggle());
     await tester.pump();

@@ -79,22 +79,40 @@ class TodayScreen extends StatelessWidget {
             child: SizedBox(
               width: 120,
               height: 120,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  shape: const CircleBorder(),
-                  backgroundColor: running
-                      ? theme.colorScheme.error
-                      : theme.colorScheme.primary,
+              child: Semantics(
+                button: true,
+                label: running
+                    ? 'Arbeitszeit pausieren'
+                    : 'Arbeitszeit starten',
+                excludeSemantics: true,
+                child: Tooltip(
+                  message: running
+                      ? 'Arbeitszeit pausieren'
+                      : 'Arbeitszeit starten',
+                  child: FilledButton(
+                    style: FilledButton.styleFrom(
+                      shape: const CircleBorder(),
+                      backgroundColor: running
+                          ? theme.colorScheme.error
+                          : theme.colorScheme.primary,
+                    ),
+                    // Was angezeigt wird, ist gemeint – auch wenn der Stand
+                    // inzwischen anderswo geändert wurde.
+                    onPressed: () => state.toggle(to: !running),
+                    child: Icon(running ? Icons.pause : Icons.play_arrow,
+                        size: 64),
+                  ),
                 ),
-                onPressed: state.toggle,
-                child: Icon(running ? Icons.pause : Icons.play_arrow, size: 64),
               ),
             ),
           ),
           const SizedBox(height: 8),
           Center(
-            child: Text(running ? 'Pause' : 'Start',
-                style: theme.textTheme.titleMedium),
+            // Bildschirmleser lesen schon die Beschriftung des Knopfs.
+            child: ExcludeSemantics(
+              child: Text(running ? 'Pause' : 'Start',
+                  style: theme.textTheme.titleMedium),
+            ),
           ),
           const SizedBox(height: 24),
           Card(

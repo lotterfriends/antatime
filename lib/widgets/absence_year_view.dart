@@ -122,8 +122,12 @@ class _AbsenceYearViewState extends State<AbsenceYearView> {
 
   Future<void> _finish() async {
     if (!_selecting) return;
-    final from = _selFrom!;
-    final to = _selTo!;
+    await _open(_selFrom!, _selTo!);
+    if (mounted) _cancel();
+  }
+
+  /// Öffnet die Abwesenheit am Tag bzw. das Eintragen für [from]–[to].
+  Future<void> _open(DateTime from, DateTime to) async {
     final state = context.read<AppState>();
     Absence? existing;
     if (from == to) {
@@ -142,7 +146,6 @@ class _AbsenceYearViewState extends State<AbsenceYearView> {
         range: DateTimeRange(start: from, end: to),
       );
     }
-    if (mounted) _cancel();
   }
 
   @override
@@ -233,6 +236,7 @@ class _AbsenceYearViewState extends State<AbsenceYearView> {
                               today: today,
                               selFrom: _selFrom,
                               selTo: _selTo,
+                              onOpen: (d) => _open(d, d),
                             ),
                           ),
                       ],
@@ -620,7 +624,12 @@ class _MonthGrid extends StatelessWidget {
     required this.today,
     required this.selFrom,
     required this.selTo,
+    required this.onOpen,
   });
+
+  /// Tag per Tastatur oder Bildschirmleser öffnen (Maus/Touch: Auswahl über
+  /// das Ziehen in der Jahresansicht).
+  final void Function(DateTime day) onOpen;
 
   final DateTime month;
   final BalanceCalculator calc;
@@ -716,15 +725,16 @@ class _MonthGrid extends StatelessWidget {
           ),
         ],
       );
+      final info = [
+        formatDate(day),
+        if (halfHoliday != null) '${halfHoliday.label} (halber Feiertag)',
+        if (absence != null)
+          '${absence.label}${halfHoliday != null ? ' (halber Tag)' : ''}'
+              '${!absence.isHoliday && absence.note != null ? ' · ${absence.note}' : ''}',
+      ];
       if (absence != null || halfHoliday != null) {
         cell = Tooltip(
-          message: [
-            formatDate(day),
-            if (halfHoliday != null) '${halfHoliday.label} (halber Feiertag)',
-            if (absence != null)
-              '${absence.label}${halfHoliday != null ? ' (halber Tag)' : ''}'
-                  '${!absence.isHoliday && absence.note != null ? ' · ${absence.note}' : ''}',
-          ].join('\n'),
+          message: info.join('\n'),
           triggerMode: TooltipTriggerMode.manual,
           waitDuration: const Duration(milliseconds: 400),
           child: cell,
@@ -733,7 +743,14 @@ class _MonthGrid extends StatelessWidget {
       return MetaData(
         metaData: _DayTag(day),
         behavior: HitTestBehavior.opaque,
-        child: MouseRegion(cursor: SystemMouseCursors.click, child: cell),
+        child: _DayFocus(
+          label: [
+            ...info,
+            if (freeDay && absence == null) 'frei',
+          ].join(', '),
+          onOpen: () => onOpen(day),
+          child: cell,
+        ),
       );
     }
 
@@ -770,6 +787,52 @@ class _MonthGrid extends StatelessWidget {
               ],
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tageszelle für Tastatur und Bildschirmleser: fokussierbar (Tab), mit
+/// Enter/Leertaste zu öffnen und mit Datum und Abwesenheit beschriftet.
+class _DayFocus extends StatelessWidget {
+  const _DayFocus({
+    required this.label,
+    required this.onOpen,
+    required this.child,
+  });
+
+  final String label;
+  final VoidCallback onOpen;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = Theme.of(context).colorScheme;
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      onTap: onOpen,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+            onOpen();
+            return null;
+          }),
+        },
+        child: Builder(
+          builder: (context) => Focus.of(context).hasFocus
+              ? DecoratedBox(
+                  position: DecorationPosition.foreground,
+                  decoration: BoxDecoration(
+                    border: Border.all(color: c.primary, width: 2),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: child,
+                )
+              : child,
         ),
       ),
     );

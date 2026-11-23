@@ -1,4 +1,5 @@
 import 'package:antatime/app_state.dart';
+import 'package:antatime/format.dart';
 import 'package:antatime/main.dart';
 import 'package:antatime/models.dart';
 import 'package:antatime/repository.dart';
@@ -140,6 +141,49 @@ void main() {
     expect(jan.top, greaterThanOrEqualTo(view2.top));
     expect(jan.top, lessThan(view2.top + 20));
 
+    state.dispose();
+  });
+
+  testWidgets('Jahresansicht per Tastatur und Bildschirmleser', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1200, 560));
+    final semantics = tester.ensureSemantics();
+    late AppState state;
+    await tester.runAsync(() async {
+      await initializeDateFormatting('de_DE');
+      final repo = Repository();
+      final data = await repo.load();
+      state = AppState(repo, data);
+    });
+    await tester.pumpWidget(
+      ChangeNotifierProvider.value(value: state, child: const AnTaTimeApp()),
+    );
+    await tester.pump();
+    await tester.tap(find.text('Abwesend').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Jahresansicht'));
+    await tester.pumpAndSettle();
+
+    final now = DateTime.now();
+    final month = DateFormat.MMMM('de_DE').format(now);
+    final day = DateTime(now.year, now.month, 5);
+    // Beschriftet mit dem Datum.
+    expect(
+      find.bySemanticsLabel(RegExp('^${RegExp.escape(formatDate(day))}')),
+      findsOneWidget,
+    );
+
+    // Fokussieren und mit Enter öffnen.
+    final cell = find.descendant(
+      of: find.ancestor(of: find.text(month), matching: find.byType(Card)),
+      matching: find.text('5'),
+    );
+    Focus.of(tester.element(cell)).requestFocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pumpAndSettle();
+    expect(find.text('Abwesenheit eintragen'), findsOneWidget);
+
+    semantics.dispose();
     state.dispose();
   });
 }
