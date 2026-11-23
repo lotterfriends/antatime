@@ -336,6 +336,34 @@ void main() {
       expect(st.pending, contains('s:a'));
     });
 
+    test('Gleicher Zeitstempel, anderer Inhalt: alle Geräte einigen sich', () {
+      // Zwei Geräte sind gleichzeitig einem leeren Code beigetreten: Beide
+      // haben ihre Einstellung mit Zeitstempel 0.
+      AppData dev(double h) => AppData(
+          sessions: [], absences: [], settings: Settings()..weeklyHours = h);
+      final a = dev(32), b = dev(40);
+      final sa = SyncState(url: 'u', code: 'c')..seedForJoin(recordsOf(a));
+      final sb = SyncState(url: 'u', code: 'c')..seedForJoin(recordsOf(b));
+      // Jedes bekommt den Stand des anderen.
+      sa.applyRemote(a, 'c:weeklyHours', 0, 40.0, deleted: false);
+      sb.applyRemote(b, 'c:weeklyHours', 0, 32.0, deleted: false);
+      // Das Gerät mit dem „kleineren“ Inhalt übernimmt, das andere sendet
+      // seinen erneut – danach haben beide denselben Wert.
+      final winner = '40.0'.compareTo('32.0') > 0 ? 40.0 : 32.0;
+      expect(a.settings.weeklyHours, winner);
+      expect(b.settings.weeklyHours, winner);
+      final winnerState = winner == 40.0 ? sb : sa;
+      expect(winnerState.records['c:weeklyHours']!.pending, isTrue,
+          reason: 'Gewinner sendet erneut');
+    });
+
+    test('Zu große Datensätze blockieren die Übertragung nicht', () {
+      expect(SyncService.tooLargeNotice(['s:x']), contains('Arbeitszeit'));
+      expect(utf8.encode('x' * maxNoteLength * 4).length + 200,
+          lessThan(SyncService.maxRecordBytes),
+          reason: 'die längste Notiz passt (auch mit 4-Byte-Zeichen)');
+    });
+
     test('Plattform-Unterschiede führen nicht zu erneutem Senden', () {
       final data = sample();
       final st = SyncState(url: 'x', code: 'y');

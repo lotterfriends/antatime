@@ -128,6 +128,22 @@ class SyncService extends ChangeNotifier {
 
   bool get enabled => code != null;
 
+  /// Größter Datensatz, den der Server annimmt (verschlüsselt, Standard
+  /// von MAX_RECORD_BYTES).
+  static const maxRecordBytes = 16 * 1024;
+
+  /// Hinweis zu Datensätzen, die zu groß für die Übertragung sind.
+  @visibleForTesting
+  static String tooLargeNotice(List<String> names) {
+    final what = names.any((n) => n.startsWith('s:'))
+        ? 'eine Arbeitszeit'
+        : names.any((n) => n.startsWith('a:'))
+            ? 'eine Abwesenheit'
+            : 'eine Einstellung';
+    return 'Mindestens $what ist zu groß für die Synchronisation (z. B. eine '
+        'sehr lange Notiz) und wird nicht übertragen. Bitte die Notiz kürzen.';
+  }
+
   /// Hinweis, wenn beim Beitreten die auf diesem Gerät laufende
   /// Zeiterfassung (seit [start]) verworfen wurde, weil auf einem anderen
   /// Gerät zu dieser Zeit bereits erfasst wurde. Die App kann das nicht von
@@ -181,6 +197,9 @@ class SyncService extends ChangeNotifier {
   StreamSubscription<dynamic>? _sub;
   int _generation = 0;
   bool _live = false;
+
+  /// Dieses Gerät hat das Löschen der Daten auf dem Server angefordert.
+  bool _deleteRequested = false;
 
   /// Beim Beitreten: die Arbeitszeit, die auf diesem Gerät gerade läuft –
   /// bis zum ersten vollständigen Abgleich (siehe [_onSynced]).
@@ -272,6 +291,9 @@ class SyncService extends ChangeNotifier {
   Future<bool> disable({bool deleteRemote = false}) async {
     if (deleteRemote) {
       if (!_live) return false;
+      // Auch wenn die Bestätigung zu spät kommt: Dieses Gerät hat gelöscht
+      // und soll nicht „auf einem anderen Gerät beendet“ melden.
+      _deleteRequested = true;
       final done = _deleteDone = Completer<void>();
       _channel!.sink.add(deleteVaultFrame);
       try {
@@ -343,7 +365,9 @@ class SyncService extends ChangeNotifier {
     if (!enabled) return;
     final longAway = paused != null &&
         DateTime.now().difference(paused) > _reconnectAfterPause;
-    if (status == SyncStatus.offline ||
+    // Nach einem Serverfehler (z. B. Speicher voll, Version) gilt dessen
+    // Wartezeit – nicht bei jedem Öffnen der App gleich erneut versuchen.
+    if ((status == SyncStatus.offline && _serverErrorCode == null) ||
         (longAway &&
             (status == SyncStatus.online || status == SyncStatus.connecting))) {
       _reconnectNow();
@@ -517,7 +541,15 @@ class SyncService extends ChangeNotifier {
         cancelOnError: true,
       );
       final st = await _loadState();
-      if (gen != _generation || st == null) return;
+      if (gen != _generation) return;
+      if (st == null || st.code != code) {
+        // In einem anderen Tab beendet oder umgestellt: nachziehen statt die
+        // Verbindung ohne HELLO offen zu lassen (der Server würde sie nach
+        // einer Weile trennen, und es ginge von vorn los).
+        _closeChannel();
+        await _followStoredState(st);
+        return;
+      }
       ch.sink.add(encodeHello(_crypto!.vaultId, st.seq));
       _lastCheck = DateTime.now();
       _pingTimer = Timer.periodic(_checkEvery, (_) => _checkAlive());
@@ -718,6 +750,10 @@ class SyncService extends ChangeNotifier {
       case PongMessage():
         break;
       case VaultDeletedMessage():
+        // Sofort, nicht erst in der Warteschlange: Sonst verbindet der Retry
+        // nach dem Trennen des Servers neu und bekommt die Meldung erneut.
+        _generation++;
+        _retryTimer?.cancel();
         _enqueue(_onVaultDeleted);
       case ErrorMessage(:final code, :final message):
         _serverErrorCode = code;
@@ -774,7 +810,7 @@ class SyncService extends ChangeNotifier {
       await _saveState(st);
       // Auch ohne eigene Änderung melden: Die frisch geladenen Daten können
       // Änderungen eines anderen Tabs enthalten, der sie schon gespeichert hat.
-      onRemoteData?.call(data);
+      if (!_disposed) onRemoteData?.call(data);
       return st.pending.isNotEmpty;
     });
     if (pushNeeded) _schedulePush();
@@ -811,7 +847,7 @@ class SyncService extends ChangeNotifier {
       if (_resolveOverlaps(data, st,
           onDropped: (s) => lost ??= s.id == joinRunning ? s : null)) {
         await _store.saveAll(data);
-        onRemoteData?.call(data);
+        if (!_disposed) onRemoteData?.call(data);
       }
       await _saveState(st);
       if (lost != null) {
@@ -852,17 +888,29 @@ class SyncService extends ChangeNotifier {
     if (gen != _generation || !_live || _inflight != null) return;
     final st = await _loadState();
     if (st == null) return;
-    final names = st.pending.take(_maxPerPush).toList();
-    if (names.isEmpty) return;
     final crypto = _crypto!;
     final wire = <WireRecord>[];
     final sent = <(String, int)>[];
-    for (final name in names) {
+    final tooLarge = <String>[];
+    for (final name in st.pending) {
+      if (wire.length >= _maxPerPush) break;
+      final plain = utf8.encode(st.payload(name));
+      // Der Server lehnt zu große Datensätze ab – und damit den ganzen PUSH.
+      // Ein einzelner (z. B. eine sehr lange Notiz) würde so jede weitere
+      // Übertragung blockieren; er bleibt ausstehend, bis er kleiner ist.
+      if (plain.length + SyncCrypto.overhead > maxRecordBytes) {
+        tooLarge.add(name);
+        continue;
+      }
       final key = await crypto.recordKey(name);
-      final data = await crypto.encrypt(utf8.encode(st.payload(name)), key);
-      wire.add(WireRecord(key, data));
+      wire.add(WireRecord(key, await crypto.encrypt(plain, key)));
       sent.add((name, st.records[name]!.modified));
     }
+    if (tooLarge.isNotEmpty && notice == null) {
+      notice = tooLargeNotice(tooLarge);
+      _notify();
+    }
+    if (wire.isEmpty) return;
     if (gen != _generation || _channel == null) return;
     final reqId = ++_reqId;
     _inflight = (reqId: reqId, sent: sent);
@@ -889,8 +937,11 @@ class SyncService extends ChangeNotifier {
   }
 
   Future<void> _onVaultDeleted() async {
+    if (!enabled) return; // schon behandelt
     final requested = _deleteDone;
+    final byUs = requested != null || _deleteRequested;
     _deleteDone = null;
+    _deleteRequested = false;
     _generation++;
     _retryTimer?.cancel();
     _closeChannel();
@@ -899,7 +950,7 @@ class SyncService extends ChangeNotifier {
     _reset();
     if (requested != null) {
       requested.complete();
-    } else {
+    } else if (!byUs) {
       notice = 'Die Synchronisation wurde auf einem anderen Gerät beendet '
           'und die Daten auf dem Server gelöscht. Die Daten auf diesem Gerät '
           'bleiben erhalten.';

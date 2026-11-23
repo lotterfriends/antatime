@@ -200,9 +200,21 @@ class SyncState {
       return false;
     }
     if (local != null && local.modified == modified) {
-      // Derselbe Stand (z. B. eigenes Echo nach einem Verbindungsabbruch).
-      local.pending = false;
-      return false;
+      final remote = deleted ? '' : jsonEncode(value);
+      final mine = local.content ?? '';
+      if (remote == mine) {
+        // Derselbe Stand (z. B. eigenes Echo nach einem Verbindungsabbruch).
+        local.pending = false;
+        return false;
+      }
+      // Gleicher Zeitstempel, anderer Inhalt (z. B. zwei Geräte sind
+      // gleichzeitig einem leeren Code beigetreten – alles mit Zeitstempel
+      // 0): Der Inhalt entscheidet, damit alle Geräte denselben Stand
+      // behalten statt jedes seinen eigenen.
+      if (remote.compareTo(mine) < 0) {
+        local.pending = true;
+        return false;
+      }
     }
     final before = contentOf(data, name);
     applyRecord(data, name, value, deleted: deleted);

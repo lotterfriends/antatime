@@ -15,6 +15,10 @@ final _rnd = Random();
 String newId() =>
     '${DateTime.now().microsecondsSinceEpoch.toRadixString(36)}${_rnd.nextInt(0x7fffffff).toRadixString(36)}';
 
+/// Längste Notiz, die man eingeben kann (passt sicher in einen
+/// Sync-Datensatz, siehe SyncService.maxRecordBytes).
+const maxNoteLength = 2000;
+
 /// Ein Arbeitszeit-Block. [end] == null bedeutet: läuft gerade.
 /// Kürzere Unterbrechungen gelten nicht als Pause.
 const minBreak = Duration(minutes: 1);

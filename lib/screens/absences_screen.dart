@@ -323,6 +323,8 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
               ),
             TextField(
               controller: _note,
+              // Lange Notizen passen nicht mehr in einen Sync-Datensatz.
+              maxLength: maxNoteLength,
               decoration: const InputDecoration(labelText: 'Notiz (optional)'),
             ),
           ],

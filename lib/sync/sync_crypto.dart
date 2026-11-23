@@ -18,6 +18,9 @@ class SyncCrypto {
 
   static const codeLength = 25;
 
+  /// Zusätzliche Bytes durch die Verschlüsselung: Nonce (12) und Tag (16).
+  static const overhead = 12 + 16;
+
   /// Crockford-Base32 (ohne I, L, O, U – verwechslungsarm).
   static const _alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 

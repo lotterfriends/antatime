@@ -221,6 +221,8 @@ class _SessionEditorState extends State<_SessionEditor> {
               ),
             TextField(
               controller: _note,
+              // Lange Notizen passen nicht mehr in einen Sync-Datensatz.
+              maxLength: maxNoteLength,
               decoration: const InputDecoration(labelText: 'Notiz (optional)'),
             ),
             if (_error != null)
