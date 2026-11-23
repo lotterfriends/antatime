@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_android/shared_preferences_android.dart';
 
@@ -95,6 +96,7 @@ class Repository implements SyncStore {
   Future<AppData> load() async {
     await _migrate();
     final sessionsRaw = await _prefs.getString(_kSessions);
+    _loadedSessions = sessionsRaw;
     final absencesRaw = await _prefs.getString(_kAbsences);
     final settingsRaw = await _prefs.getString(_kSettings);
 
@@ -117,8 +119,81 @@ class Repository implements SyncStore {
       .map((e) => Absence.fromJson(e as Map<String, dynamic>))
       .toList();
 
-  Future<void> saveSessions(List<WorkSession> sessions) => _prefs.setString(
-      _kSessions, jsonEncode(sessions.map((s) => s.toJson()).toList()));
+  /// Arbeitszeiten, wie sie zuletzt geladen bzw. gespeichert wurden (roh).
+  String? _loadedSessions;
+
+  static const _native = MethodChannel('antatime/notification');
+
+  static String _encodeSessions(List<WorkSession> sessions) =>
+      jsonEncode(sessions.map((s) => s.toJson()).toList());
+
+  /// Speichert die Arbeitszeiten.
+  ///
+  /// Auf Android kann die native Benachrichtigung (TrackingStore.kt) sie
+  /// jederzeit ändern – an [exclusive] vorbei. Deshalb wird dort nur
+  /// gespeichert, wenn noch der geladene Stand vorliegt (atomar im nativen
+  /// Teil). Sonst werden beide Änderungen zusammengeführt (siehe
+  /// [rebaseSessions]) und erneut versucht.
+  Future<void> saveSessions(List<WorkSession> sessions) async {
+    if (!_isAndroid) {
+      final raw = _encodeSessions(sessions);
+      await _prefs.setString(_kSessions, raw);
+      _loadedSessions = raw;
+      return;
+    }
+    var ours = sessions;
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final raw = _encodeSessions(ours);
+      final bool? ok;
+      try {
+        ok = await _native
+            .invokeMethod<bool>('casSessions', [_loadedSessions, raw]);
+      } on MissingPluginException {
+        // Ohne Activity (kein Kanal) gibt es auch keine native Aktion.
+        await _prefs.setString(_kSessions, raw);
+        _loadedSessions = raw;
+        return;
+      }
+      if (ok == true) {
+        _loadedSessions = raw;
+        return;
+      }
+      final current = await _prefs.getString(_kSessions);
+      ours = rebaseSessions(
+        base: _parseSessions(_loadedSessions),
+        theirs: _parseSessions(current),
+        ours: ours,
+      );
+      _loadedSessions = current;
+    }
+    throw StateError('Arbeitszeiten konnten nicht gespeichert werden.');
+  }
+
+  static List<WorkSession> _parseSessions(String? raw) =>
+      raw == null ? [] : _sessionsFrom(jsonDecode(raw));
+
+  /// Führt eigene Änderungen ([ours], ausgehend von [base]) mit denen eines
+  /// anderen Schreibers ([theirs], z. B. Start/Pause in der Benachrichtigung)
+  /// zusammen – je Arbeitszeit. Haben beide dieselbe geändert, gewinnt
+  /// [theirs]: Das ist die jüngste Aktion des Nutzers.
+  static List<WorkSession> rebaseSessions({
+    required List<WorkSession> base,
+    required List<WorkSession> theirs,
+    required List<WorkSession> ours,
+  }) {
+    Map<String, String> byId(List<WorkSession> l) =>
+        {for (final s in l) s.id: jsonEncode(s.toJson())};
+    final b = byId(base), t = byId(theirs), o = byId(ours);
+    final result = <WorkSession>[];
+    for (final id in {...b.keys, ...t.keys, ...o.keys}) {
+      final pick = o[id] == b[id] ? t[id] : (t[id] == b[id] ? o[id] : t[id]);
+      if (pick != null) {
+        result.add(
+            WorkSession.fromJson(jsonDecode(pick) as Map<String, dynamic>));
+      }
+    }
+    return result..sort((a, b) => a.start.compareTo(b.start));
+  }
 
   Future<void> saveAbsences(List<Absence> absences) => _prefs.setString(
       _kAbsences, jsonEncode(absences.map((a) => a.toJson()).toList()));

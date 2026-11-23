@@ -31,6 +31,22 @@ class TrackingStore(context: Context) {
 
         private val isoLocal: DateTimeFormatter =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS")
+
+        /** Lesen-Ändern-Schreiben der Arbeitszeiten (native Aktionen und Dart). */
+        private val LOCK = Any()
+    }
+
+    /**
+     * Ersetzt die Arbeitszeiten durch [value], aber nur, wenn sie noch dem von
+     * Dart geladenen Stand [expected] entsprechen (`null` = nicht vorhanden).
+     * Sonst hat eine Benachrichtigungs-Aktion sie inzwischen geändert, und
+     * Dart führt beides zusammen, statt diese Änderung zu überschreiben.
+     */
+    fun compareAndSetSessions(expected: String?, value: String): Boolean {
+        synchronized(LOCK) {
+            if (prefs.getString(KEY_SESSIONS, null) != expected) return false
+            return prefs.edit().putString(KEY_SESSIONS, value).commit()
+        }
     }
 
     data class Session(val start: Instant, val end: Instant?)
@@ -91,6 +107,10 @@ class TrackingStore(context: Context) {
      * Gibt `true` zurück, wenn danach eine Arbeitszeit läuft.
      */
     fun toggle(now: Instant = Instant.now()): Boolean {
+        synchronized(LOCK) { return toggleLocked(now) }
+    }
+
+    private fun toggleLocked(now: Instant): Boolean {
         val arr = sessionsJson()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue

@@ -38,6 +38,18 @@ class MainActivity : FlutterActivity() {
                         TargetReminder.setTargets(applicationContext, targets)
                         result.success(null)
                     }
+                    "casSessions" -> {
+                        val args = call.arguments as? List<*>
+                        val value = args?.getOrNull(1) as? String
+                        if (value == null) {
+                            result.error("args", "Erwartet [expected, value]", null)
+                        } else {
+                            result.success(
+                                TrackingStore(applicationContext)
+                                    .compareAndSetSessions(args[0] as? String, value)
+                            )
+                        }
+                    }
                     "cancel" -> {
                         TrackingNotification.cancel(applicationContext)
                         result.success(null)
