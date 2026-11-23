@@ -75,6 +75,10 @@ List<Holiday> holidaysFor(FederalState state, int year) {
         (state == FederalState.mv && year >= 2023))
       Holiday(DateTime(year, 3, 8), 'Internationaler Frauentag'),
     Holiday(e(-2), 'Karfreitag'),
+    // Nur Brandenburg führt Oster- und Pfingstsonntag als eigene Feiertage.
+    // Hessen nicht: Dort sind alle Sonntage gesetzliche Feiertage
+    // (§ 1 HFeiertagsG), Oster- und Pfingstsonntag sind nur besonders
+    // geschützt (§ 9) – wie Sonntage anderswo also kein eigener Eintrag.
     if (state == FederalState.bb) Holiday(easter, 'Ostersonntag'),
     Holiday(e(1), 'Ostermontag'),
     Holiday(DateTime(year, 5, 1), 'Tag der Arbeit'),
