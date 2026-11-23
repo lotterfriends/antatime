@@ -470,11 +470,12 @@ Future<int?> _pickTime(BuildContext context, int initial, String help) async {
 /// [lateWork] – für Arbeit am Abend ab.
 Future<double?> _askFactor(BuildContext context, double initial,
     {bool lateWork = false}) {
-  final controller = TextEditingController(text: formatFactor(initial));
   String? error;
   return showDialog<double>(
     context: context,
-    builder: (c) => StatefulBuilder(
+    builder: (c) => _WithController(
+      initial: formatFactor(initial),
+      builder: (controller) => StatefulBuilder(
       builder: (c, setState) {
         void submit() {
           final v = parseFactor(controller.text);
@@ -520,6 +521,7 @@ Future<double?> _askFactor(BuildContext context, double initial,
           ],
         );
       },
+    ),
     ),
   );
 }
@@ -638,11 +640,12 @@ Future<int?> _askHours(
   required String initial,
   bool allowNegative = false,
 }) {
-  final controller = TextEditingController(text: initial);
   String? error;
   return showDialog<int>(
     context: context,
-    builder: (c) => StatefulBuilder(
+    builder: (c) => _WithController(
+      initial: initial,
+      builder: (controller) => StatefulBuilder(
       builder: (c, setState) {
         void submit() {
           final v = parseHoursToMinutes(controller.text);
@@ -676,5 +679,32 @@ Future<int?> _askHours(
         );
       },
     ),
+    ),
   );
+}
+
+/// Hält den [TextEditingController] eines Dialogs und gibt ihn frei, wenn
+/// der Dialog wirklich geschlossen ist – nicht schon, wenn `showDialog`
+/// zurückkehrt (während der Schließ-Animation hängt das Textfeld noch daran).
+class _WithController extends StatefulWidget {
+  const _WithController({required this.initial, required this.builder});
+
+  final String initial;
+  final Widget Function(TextEditingController controller) builder;
+
+  @override
+  State<_WithController> createState() => _WithControllerState();
+}
+
+class _WithControllerState extends State<_WithController> {
+  late final _controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_controller);
 }
