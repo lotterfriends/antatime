@@ -68,14 +68,12 @@ String exportCsv(AppData data, DateTime from, DateTime to, {DateTime? now}) {
       _hours(s.bonus),
       absence == null
           ? ''
-          : absence.half
-              ? '${absence.label} (halb)'
-              : absence.label,
+          : _text(absence.half ? '${absence.label} (halb)' : absence.label),
       dayDiff == null ? '' : _hours(dayDiff),
-      sessions
+      _text(sessions
           .map((x) => x.note?.trim() ?? '')
           .where((n) => n.isNotEmpty)
-          .join(' | '),
+          .join(' | ')),
     ]);
   }
 
@@ -101,6 +99,13 @@ String _hours(Duration d) {
   final s = (d.inSeconds / 3600).toStringAsFixed(2).replaceAll('.', ',');
   return s == '-0,00' ? '0,00' : s;
 }
+
+/// Freitext (Notizen): Beginnt er mit einem Zeichen, das Tabellen-
+/// programme als Formel lesen (`=`, `+`, `-`, `@`, Tab, CR), wird ein `'`
+/// vorangestellt – sonst würde z. B. `=HYPERLINK(…)` ausgeführt. Nicht für
+/// die Stunden-Spalten, die legitim negativ sind.
+String _text(String v) =>
+    v.isNotEmpty && '=+-@\t\r'.contains(v[0]) ? "'$v" : v;
 
 /// Zelle nach RFC 4180 in Anführungszeichen, falls nötig.
 String _cell(String v) {

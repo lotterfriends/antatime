@@ -55,4 +55,14 @@ void main() {
     expect(lines[12], startsWith('10.11.2026;'));
     expect(lines[12].split(';')[9], '0,00');
   });
+
+  test('Notizen werden nicht als Formel ausgeführt', () {
+    final d = data();
+    d.sessions.first.note = '=HYPERLINK("http://x";"klick")';
+    d.sessions.last.note = '-2+3';
+    final csv = exportCsv(d, DateTime(2026, 11, 2), DateTime(2026, 11, 2),
+        now: DateTime(2026, 11, 10));
+    final line = csv.split('\r\n')[1];
+    expect(line, endsWith('''"'=HYPERLINK(""http://x"";""klick"") | -2+3"'''));
+  });
 }
