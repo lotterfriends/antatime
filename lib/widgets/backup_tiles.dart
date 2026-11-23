@@ -27,17 +27,17 @@ class BackupTiles extends StatelessWidget {
           onTap: () => _export(context),
         ),
         ListTile(
+          leading: const Icon(Icons.file_download_outlined),
+          title: const Text('Importieren'),
+          subtitle: const Text('Ersetzt alle Daten durch eine Sicherung'),
+          onTap: () => _import(context),
+        ),
+        ListTile(
           leading: const Icon(Icons.table_chart_outlined),
           title: const Text('Als CSV exportieren'),
           subtitle: const Text(
               'Arbeitszeiten eines Zeitraums als Tabelle, z. B. für Excel'),
           onTap: () => _exportCsv(context),
-        ),
-        ListTile(
-          leading: const Icon(Icons.file_download_outlined),
-          title: const Text('Importieren'),
-          subtitle: const Text('Ersetzt alle Daten durch eine Sicherung'),
-          onTap: () => _import(context),
         ),
       ],
     );
