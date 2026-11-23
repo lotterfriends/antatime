@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:antatime/models.dart';
+import 'package:antatime/sync/sync_records.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -30,5 +31,19 @@ void main() {
     final j = s.toJson();
     expect(j['start'], '2026-11-23T08:00:00.000');
     expect(j['startUtc'], DateTime(2026, 11, 23, 8).toUtc().toIso8601String());
+  });
+
+  test('Native Änderung behält ihren Zeitpunkt', () {
+    final st = SyncState(url: 'u', code: 'c');
+    st.records['s:a'] = SyncEntry('alt', 1000);
+    st.clock = 5000;
+    // Die Benachrichtigung hat um 3000 geändert, bemerkt wird es erst jetzt.
+    st.diffLocal({'s:a': 'neu', 's:b': 'x'}, DateTime.fromMillisecondsSinceEpoch(9000),
+        {'s:a': 3000});
+    expect(st.records['s:a']!.modified, 3000);
+    expect(st.records['s:b']!.modified, 9000);
+    // Älter als der eigene Stand: knapp danach, damit die Änderung zählt.
+    st.diffLocal({'s:a': 'neuer', 's:b': 'x'}, null, {'s:a': 10});
+    expect(st.records['s:a']!.modified, 3001);
   });
 }

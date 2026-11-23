@@ -50,6 +50,9 @@ class MainActivity : FlutterActivity() {
                             )
                         }
                     }
+                    "takeNativeChanges" -> {
+                        result.success(TrackingStore(applicationContext).takeNativeChanges())
+                    }
                     "cancel" -> {
                         TrackingNotification.cancel(applicationContext)
                         result.success(null)

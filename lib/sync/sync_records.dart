@@ -147,12 +147,21 @@ class SyncState {
 
   /// Erkennt lokale Änderungen gegenüber dem Snapshot und markiert sie als
   /// ausstehend. Gibt die Anzahl der Änderungen zurück.
-  int diffLocal(Map<String, String> current, [DateTime? now]) {
+  ///
+  /// [madeAt] (Datensatz → ms) nennt für Änderungen, die nicht die App selbst
+  /// gemacht hat (Android-Benachrichtigung), den tatsächlichen Zeitpunkt –
+  /// sonst bekämen sie den Zeitpunkt, an dem die App sie bemerkt.
+  int diffLocal(Map<String, String> current,
+      [DateTime? now, Map<String, int> madeAt = const {}]) {
     var changed = 0;
     current.forEach((name, content) {
       final e = records[name];
       if (e == null || e.content != content) {
-        records[name] = SyncEntry(content, tick(now), pending: true);
+        final at = madeAt[name];
+        final modified =
+            at == null ? tick(now) : max(at, (e?.modified ?? 0) + 1);
+        clock = max(clock, modified);
+        records[name] = SyncEntry(content, modified, pending: true);
         changed++;
       }
     });

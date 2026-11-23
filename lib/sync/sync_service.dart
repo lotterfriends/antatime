@@ -54,8 +54,24 @@ class SyncService extends ChangeNotifier {
     this.onRemoteData,
     Stream<void> Function()? networkChanges,
     FutureOr<void Function()> Function(String name)? leaderLock,
+    this.nativeChanges,
   })  : _networkChanges = networkChanges ?? platformNetworkChanges,
         _leaderLock = leaderLock ?? acquireSyncLeadership;
+
+  /// Liefert (und vergisst) die Zeitpunkte nativer Änderungen an
+  /// Arbeitszeiten (Arbeitszeit-ID → ms), siehe [SyncState.diffLocal].
+  final Future<Map<String, int>> Function()? nativeChanges;
+
+  Future<Map<String, int>> _madeAt() async {
+    final f = nativeChanges;
+    if (f == null) return const {};
+    try {
+      return {for (final e in (await f()).entries) 's:${e.key}': e.value};
+    } catch (e) {
+      debugPrint('Sync: Zeitpunkte nativer Änderungen nicht lesbar: $e');
+      return const {};
+    }
+  }
 
   /// Standard-Server, z. B. `flutter build web --dart-define=SYNC_URL=…`.
   static const defaultUrl = String.fromEnvironment('SYNC_URL');
@@ -284,7 +300,9 @@ class SyncService extends ChangeNotifier {
         final data = await _store.load();
         final st = await _loadState();
         if (st == null) return false;
-        if (st.diffLocal(recordsOf(data)) > 0) await _saveState(st);
+        if (st.diffLocal(recordsOf(data), null, await _madeAt()) > 0) {
+          await _saveState(st);
+        }
         // Auch ohne neue Änderung: Ein anderer Tab kann Änderungen vorgemerkt
         // haben, die nur dieser Tab (mit der Verbindung) senden kann.
         return st.pending.isNotEmpty;
@@ -731,7 +749,7 @@ class SyncService extends ChangeNotifier {
       final st = await _loadState();
       // Ein anderer Tab kann inzwischen einen anderen Code eingerichtet haben.
       if (st == null || st.code != code) return false;
-      st.diffLocal(recordsOf(data));
+      st.diffLocal(recordsOf(data), null, await _madeAt());
       var changed = false;
       for (final (seq, name, modified, value, deleted) in decoded) {
         if (name.isNotEmpty) {
@@ -786,7 +804,7 @@ class SyncService extends ChangeNotifier {
       final data = await _store.load();
       final st = await _loadState();
       if (st == null || st.code != code) return;
-      st.diffLocal(recordsOf(data));
+      st.diffLocal(recordsOf(data), null, await _madeAt());
       final joinRunning = _joinRunning;
       _joinRunning = null;
       WorkSession? lost;

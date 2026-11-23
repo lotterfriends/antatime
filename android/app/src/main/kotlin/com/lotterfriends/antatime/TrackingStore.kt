@@ -26,6 +26,14 @@ class TrackingStore(context: Context) {
         private const val KEY_SETTINGS = "settings"
         const val KEY_STOPPED_DAY = "notificationStoppedDay"
 
+        /**
+         * Wann eine Arbeitszeit hier (nativ) geändert wurde: `{id: ms}`. Der
+         * Sync übernimmt diese Zeitpunkte, statt die Änderung erst beim
+         * nächsten Öffnen der App zu datieren (sonst könnte sie eine
+         * inzwischen auf einem anderen Gerät gemachte Änderung überschreiben).
+         */
+        const val KEY_NATIVE_CHANGES = "nativeChanges"
+
         /** Kürzere Unterbrechungen gelten nicht als Pause (wie `minBreak` in Dart). */
         private const val MIN_BREAK_MS = 60_000L
 
@@ -42,6 +50,20 @@ class TrackingStore(context: Context) {
      * Sonst hat eine Benachrichtigungs-Aktion sie inzwischen geändert, und
      * Dart führt beides zusammen, statt diese Änderung zu überschreiben.
      */
+    /** Liefert die gemerkten nativen Änderungen (ID → ms) und vergisst sie. */
+    fun takeNativeChanges(): Map<String, Long> {
+        synchronized(LOCK) {
+            val raw = prefs.getString(KEY_NATIVE_CHANGES, null) ?: return emptyMap()
+            prefs.edit().remove(KEY_NATIVE_CHANGES).commit()
+            return try {
+                val o = JSONObject(raw)
+                o.keys().asSequence().associateWith { o.optLong(it) }
+            } catch (e: Exception) {
+                emptyMap()
+            }
+        }
+    }
+
     fun compareAndSetSessions(expected: String?, value: String): Boolean {
         synchronized(LOCK) {
             if (prefs.getString(KEY_SESSIONS, null) != expected) return false
@@ -99,6 +121,17 @@ class TrackingStore(context: Context) {
         }
     }
 
+    /** Merkt sich, wann [id] hier geändert wurde (siehe [KEY_NATIVE_CHANGES]). */
+    private fun changed(edit: SharedPreferences.Editor, id: String, now: Instant) {
+        val map = try {
+            JSONObject(prefs.getString(KEY_NATIVE_CHANGES, null) ?: "{}")
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        map.put(id, now.toEpochMilli())
+        edit.putString(KEY_NATIVE_CHANGES, map.toString())
+    }
+
     fun sessions(): List<Session> {
         val arr = sessionsJson()
         val result = ArrayList<Session>(arr.length())
@@ -140,7 +173,9 @@ class TrackingStore(context: Context) {
             val o = arr.optJSONObject(i) ?: continue
             if (isRunning(o)) {
                 setEnd(o, now)
-                prefs.edit().putString(KEY_SESSIONS, arr.toString()).commit()
+                val edit = prefs.edit().putString(KEY_SESSIONS, arr.toString())
+                changed(edit, o.optString("id"), now)
+                edit.commit()
                 return false
             }
         }
@@ -158,10 +193,11 @@ class TrackingStore(context: Context) {
             val gap = now.toEpochMilli() - lastEnd.toEpochMilli()
             if (gap in 0 until MIN_BREAK_MS) {
                 setEnd(last, null)
-                prefs.edit()
+                val edit = prefs.edit()
                     .putString(KEY_SESSIONS, arr.toString())
                     .remove(KEY_STOPPED_DAY)
-                    .commit()
+                changed(edit, last.optString("id"), now)
+                edit.commit()
                 return true
             }
         }
@@ -172,10 +208,11 @@ class TrackingStore(context: Context) {
                 .put("start", format(now))
                 .put("startUtc", now.toString())
         )
-        prefs.edit()
+        val edit = prefs.edit()
             .putString(KEY_SESSIONS, arr.toString())
             .remove(KEY_STOPPED_DAY)
-            .commit()
+        changed(edit, id, now)
+        edit.commit()
         return true
     }
 

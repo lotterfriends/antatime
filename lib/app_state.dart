@@ -14,7 +14,8 @@ import 'tray_icon_style.dart';
 
 class AppState extends ChangeNotifier with WidgetsBindingObserver {
   AppState(this._repo, this.data, {SyncService? sync})
-      : sync = sync ?? SyncService(_repo) {
+      : sync = sync ??
+            SyncService(_repo, nativeChanges: _repo.takeNativeChanges) {
     WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     NotificationService.instance.onToggle = toggle;

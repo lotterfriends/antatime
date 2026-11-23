@@ -9,6 +9,7 @@ import 'auto_track.dart';
 import 'models.dart';
 import 'tray_icon_style.dart';
 import 'sync/cross_tab_lock.dart';
+import 'sync/sync_records.dart';
 import 'sync/sync_service.dart';
 
 /// Persistenz über SharedPreferences (Android/iOS nativ, im Browser
@@ -167,6 +168,23 @@ class Repository implements SyncStore {
       _loadedSessions = current;
     }
     throw StateError('Arbeitszeiten konnten nicht gespeichert werden.');
+  }
+
+  /// Zeitpunkte, zu denen die Android-Benachrichtigung Arbeitszeiten
+  /// geändert hat (ID → ms); werden dabei gelöscht. Siehe
+  /// [SyncState.diffLocal].
+  Future<Map<String, int>> takeNativeChanges() async {
+    if (!_isAndroid) return const {};
+    try {
+      final m = await _native.invokeMapMethod<String, Object?>(
+          'takeNativeChanges');
+      return {
+        for (final e in (m ?? const {}).entries)
+          if (e.value is num) e.key: (e.value as num).toInt(),
+      };
+    } on MissingPluginException {
+      return const {};
+    }
   }
 
   static List<WorkSession> _parseSessions(String? raw) =>
