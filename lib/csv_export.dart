@@ -43,7 +43,8 @@ String exportCsv(AppData data, DateTime from, DateTime to, {DateTime? now}) {
       d = DateTime(d.year, d.month, d.day + 1)) {
     final s = calc.statsFor(d);
     final sessions = s.sessions;
-    final lastEnd = sessions.isEmpty ? null : sessions.last.end;
+    final firstStart = s.firstStart;
+    final lastEnd = s.lastEnd;
     final absence = s.absence ?? s.halfHoliday;
     final counts = !d.isBefore(data.settings.startDate) && !d.isAfter(today);
     Duration? dayDiff;
@@ -59,7 +60,7 @@ String exportCsv(AppData data, DateTime from, DateTime to, {DateTime? now}) {
     rows.add([
       formatDateShort(d),
       weekdayShort[d.weekday - 1],
-      sessions.isEmpty ? '' : formatTime(sessions.first.start),
+      firstStart == null ? '' : formatTime(firstStart),
       lastEnd == null ? '' : formatTime(lastEnd),
       _hours(s.worked),
       _hours(s.breaks),

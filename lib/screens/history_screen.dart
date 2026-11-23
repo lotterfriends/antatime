@@ -147,7 +147,7 @@ class _DayRow extends StatelessWidget {
       subtitle = s.isWorkday ? 'Nichts erfasst' : 'Frei';
     } else {
       subtitle =
-          '${formatTime(s.sessions.first.start)}–${s.sessions.last.end == null ? 'jetzt' : formatTime(s.sessions.last.end!)}'
+          '${formatTime(s.firstStart!)}–${s.lastEnd == null ? 'jetzt' : formatTime(s.lastEnd!)}'
           ' · ${formatDuration(s.worked)} h'
           '${s.breaks > Duration.zero ? ' · Pause ${formatDuration(s.breaks)}' : ''}';
     }

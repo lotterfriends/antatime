@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../balance.dart';
 import '../format.dart';
-import '../models.dart';
 
 /// Farbe für Überstunden – bewusst nicht aus dem (türkisen) Farbschema,
 /// damit sie sich klar von normaler Arbeitszeit abhebt.
@@ -128,29 +127,28 @@ class DayTimeBar extends StatelessWidget {
   List<_Seg> _segments() {
     final segs = <_Seg>[];
     var remaining = workTargetOf(stats);
-    WorkSession? prev;
+    DateTime? prevEnd;
     for (final s in stats.sessions) {
-      final end = s.end ?? now;
-      if (!end.isAfter(s.start)) continue;
-      if (prev != null) {
-        final prevEnd = prev.end ?? now;
-        if (s.start.isAfter(prevEnd)) {
-          segs.add(_Seg(prevEnd, s.start, _SegKind.pause));
-        }
+      // Über Mitternacht: nur der Teil dieses Tages.
+      final start = stats.startOf(s);
+      final end = stats.endOf(s) ?? now;
+      if (!end.isAfter(start)) continue;
+      if (prevEnd != null && start.isAfter(prevEnd)) {
+        segs.add(_Seg(prevEnd, start, _SegKind.pause));
       }
-      final d = end.difference(s.start);
+      final d = end.difference(start);
       if (remaining >= d) {
-        segs.add(_Seg(s.start, end, _SegKind.work));
+        segs.add(_Seg(start, end, _SegKind.work));
         remaining -= d;
       } else {
-        final split = s.start.add(remaining);
+        final split = start.add(remaining);
         if (remaining > Duration.zero) {
-          segs.add(_Seg(s.start, split, _SegKind.work));
+          segs.add(_Seg(start, split, _SegKind.work));
         }
         segs.add(_Seg(split, end, _SegKind.overtime));
         remaining = Duration.zero;
       }
-      prev = s;
+      prevEnd = end;
     }
     return segs;
   }

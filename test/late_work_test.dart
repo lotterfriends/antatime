@@ -61,16 +61,37 @@ void main() {
     expect(c.statsFor(wed).lateBonus, const Duration(minutes: 90));
   });
 
-  test('Über Mitternacht zählt auch die Zeit danach', () {
+  test('Über Mitternacht: geteilt, die Zeit danach zählt weiter als spät', () {
     final c = BalanceCalculator(
         data([
           WorkSession(
               id: 'a',
               start: DateTime(2026, 5, 13, 19),
               end: DateTime(2026, 5, 14, 1)),
+          // Am Folgetag neu begonnen: zählt erst ab 20 Uhr als spät.
+          w('b', thu, 6, 0, 8, 0),
         ], lateFactor: 2),
         later);
-    expect(c.statsFor(wed).lateWorked, const Duration(hours: 5));
+    final mi = c.statsFor(wed), d = c.statsFor(thu);
+    expect(mi.worked, const Duration(hours: 5));
+    expect(mi.lateWorked, const Duration(hours: 4));
+    expect(d.worked, const Duration(hours: 3));
+    expect(d.lateWorked, const Duration(hours: 1));
+    // Beide Tage zeigen die Arbeitszeit, jeweils mit ihrem Anteil.
+    expect(mi.sessions.map((s) => s.id), ['a']);
+    expect(d.sessions.map((s) => s.id), ['a', 'b']);
+    expect(mi.lastEnd, DateTime(2026, 5, 14));
+    expect(d.firstStart, DateTime(2026, 5, 14));
+    // Pause am Folgetag: 1 Uhr bis 6 Uhr.
+    expect(d.breaks, const Duration(hours: 5));
+  });
+
+  test('Läuft über Mitternacht noch: heute nur seit Mitternacht', () {
+    final c = BalanceCalculator(
+        data([WorkSession(id: 'a', start: DateTime(2026, 5, 13, 22))]),
+        DateTime(2026, 5, 14, 6));
+    expect(c.statsFor(wed).worked, const Duration(hours: 2));
+    expect(c.statsFor(thu).worked, const Duration(hours: 6));
   });
 
   test('Laufende Arbeitszeit zählt bis jetzt', () {

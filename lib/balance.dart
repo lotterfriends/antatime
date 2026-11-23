@@ -17,8 +17,33 @@ class DayStats {
   });
 
   final DateTime day;
+
+  /// Arbeitszeiten, die (auch nur teilweise) an diesem Tag liegen – über
+  /// Mitternacht laufende also an beiden Tagen. Gezählt wird nur der Teil
+  /// des Tages (siehe [worked], [startOf], [endOf]).
   final List<WorkSession> sessions;
   final Duration worked;
+
+  /// Tagesbeginn und -ende (Mitternacht, lokal).
+  DateTime get dayStart => day;
+  DateTime get dayEnd => DateTime(day.year, day.month, day.day + 1);
+
+  /// Beginn von [s] an diesem Tag (frühestens Mitternacht).
+  DateTime startOf(WorkSession s) =>
+      s.start.isBefore(dayStart) ? dayStart : s.start;
+
+  /// Ende von [s] an diesem Tag (spätestens Mitternacht, `null` = läuft
+  /// heute noch).
+  DateTime? endOf(WorkSession s) {
+    final e = s.end;
+    if (e == null) return null;
+    return e.isAfter(dayEnd) ? dayEnd : e;
+  }
+
+  /// Erster Beginn und letztes Ende des Tages (`null` = keine Arbeitszeit
+  /// bzw. läuft noch).
+  DateTime? get firstStart => sessions.isEmpty ? null : startOf(sessions.first);
+  DateTime? get lastEnd => sessions.isEmpty ? null : endOf(sessions.last);
 
   /// Soll-Zeit des Tages (0 an freien Tagen).
   final Duration target;
@@ -106,8 +131,18 @@ class DayStats {
 /// Berechnet Tageswerte und das Stundenkonto.
 class BalanceCalculator {
   BalanceCalculator(this.data, this.now) {
+    // Über Mitternacht laufende Arbeitszeiten gehören zu jedem Tag, den sie
+    // berühren; gezählt wird je Tag nur der Anteil (siehe [statsFor]).
     for (final s in data.sessions) {
-      _byDay.putIfAbsent(dayKey(s.start), () => []).add(s);
+      final end = s.end ?? now;
+      var d = dayOf(s.start);
+      final last = end.isAfter(s.start)
+          ? dayOf(end.subtract(const Duration(microseconds: 1)))
+          : d;
+      for (var i = 0; !d.isAfter(last) && i < 400; i++) {
+        _byDay.putIfAbsent(dayKey(d), () => []).add(s);
+        d = DateTime(d.year, d.month, d.day + 1);
+      }
     }
     for (final list in _byDay.values) {
       list.sort((a, b) => a.start.compareTo(b.start));
@@ -253,8 +288,9 @@ class BalanceCalculator {
   DayStats statsFor(DateTime day) {
     final d = dayOf(day);
     final sessions = sessionsFor(d);
-    final worked =
-        sessions.fold(Duration.zero, (sum, s) => sum + s.durationAt(now));
+    final dayEnd = DateTime(d.year, d.month, d.day + 1);
+    final worked = sessions.fold(
+        Duration.zero, (sum, s) => sum + _overlap(s, d, dayEnd));
     final settings = settingsFor(d);
     return DayStats(
       day: d,
@@ -271,18 +307,25 @@ class BalanceCalculator {
     );
   }
 
+  /// Anteil von [s] im Zeitraum [from] bis [to].
+  Duration _overlap(WorkSession s, DateTime from, DateTime to) {
+    final start = s.start.isAfter(from) ? s.start : from;
+    final e = s.end ?? now;
+    final end = e.isBefore(to) ? e : to;
+    return end.isAfter(start) ? end.difference(start) : Duration.zero;
+  }
+
   /// Arbeitszeit des Tages nach der eingestellten Uhrzeit. Läuft eine
-  /// Arbeitszeit über Mitternacht, zählt auch die Zeit danach als spät.
+  /// Arbeitszeit über Mitternacht weiter, zählt am Folgetag auch die Zeit ab
+  /// Mitternacht als spät (Nachtarbeit).
   Duration _lateWorked(DateTime day, List<WorkSession> sessions) {
     final minutes = settingsFor(day).lateWorkMinutes;
     if (minutes == null) return Duration.zero;
+    final dayEnd = DateTime(day.year, day.month, day.day + 1);
     final from = DateTime(day.year, day.month, day.day, 0, minutes);
     var total = Duration.zero;
     for (final s in sessions) {
-      final end = s.end ?? now;
-      if (!end.isAfter(from)) continue;
-      final start = s.start.isAfter(from) ? s.start : from;
-      total += end.difference(start);
+      total += _overlap(s, s.start.isBefore(day) ? day : from, dayEnd);
     }
     return total;
   }
