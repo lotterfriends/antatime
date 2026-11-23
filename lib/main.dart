@@ -110,7 +110,10 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(index: _index, children: _pages),
+      body: IndexedStack(index: _index, children: [
+        for (var i = 0; i < _pages.length; i++)
+          _PageGate(active: i == _index, child: _pages[i]),
+      ]),
       // Die NavigationBar lässt den Cursor nicht einstellen.
       bottomNavigationBar: ClickCursorArea(
         child: NavigationBar(
@@ -128,6 +131,41 @@ class _HomeShellState extends State<HomeShell> {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Nur die sichtbare Seite folgt den Änderungen von [AppState] (u. a. jede
+/// Sekunde bei laufender Zeit). Die übrigen bleiben erhalten (Scroll-
+/// position, Auswahl), bauen sich aber erst beim Zurückwechseln neu auf –
+/// sonst würden alle vier Seiten samt Berechnungen sekündlich neu erstellt.
+class _PageGate extends StatefulWidget {
+  const _PageGate({required this.active, required this.child});
+
+  final bool active;
+  final Widget child;
+
+  @override
+  State<_PageGate> createState() => _PageGateState();
+}
+
+class _PageGateState extends State<_PageGate> {
+  @override
+  Widget build(BuildContext context) {
+    return InheritedProvider<AppState>.value(
+      value: context.read<AppState>(),
+      startListening: (element, value) {
+        void listener() {
+          if (mounted && widget.active) element.markNeedsNotifyDependents();
+        }
+
+        value.addListener(listener);
+        return () => value.removeListener(listener);
+      },
+      // Neu aufgebaut wird das Tor nur beim Seitenwechsel: Die nun sichtbare
+      // Seite holt dabei nach, was sie verpasst hat.
+      updateShouldNotify: (_, _) => widget.active,
+      child: widget.child,
     );
   }
 }

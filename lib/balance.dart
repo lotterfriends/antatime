@@ -292,19 +292,25 @@ class BalanceCalculator {
   /// Vergangene Tage zählen vollständig (nicht erfasste Arbeitstage gehen mit
   /// den Tagesstunden ins Minus). Der heutige Tag zählt erst nach Tagesende
   /// negativ – Überstunden von heute werden aber sofort gutgeschrieben.
-  Duration balance() {
+  Duration balance() => balanceBefore(dayOf(now)) + balanceToday();
+
+  /// Startwert plus alle Tage vor [day].
+  Duration balanceBefore(DateTime day) {
     var total = Duration(minutes: settings.startBalanceMinutes);
-    final today = dayOf(now);
     var d = settings.startDate;
-    while (d.isBefore(today)) {
+    while (d.isBefore(day)) {
       total += statsFor(d).diff;
       d = DateTime(d.year, d.month, d.day + 1);
     }
-    if (!settings.startDate.isAfter(today)) {
-      final t = statsFor(today).diff;
-      if (t > Duration.zero) total += t;
-    }
     return total;
+  }
+
+  /// Beitrag des heutigen Tages: nur Überstunden, Minus erst nach Tagesende.
+  Duration balanceToday() {
+    final today = dayOf(now);
+    if (settings.startDate.isAfter(today)) return Duration.zero;
+    final t = statsFor(today).diff;
+    return t > Duration.zero ? t : Duration.zero;
   }
 
   /// Summe der Differenzen für den Zeitraum [from] bis [to] (inklusive),

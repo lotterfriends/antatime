@@ -44,7 +44,32 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   DateTime now = DateTime.now();
   int _tickCount = 0;
 
-  BalanceCalculator get calc => BalanceCalculator(data, now);
+  /// Rechner für [data] und [now] – wiederverwendet, solange sich beides
+  /// nicht ändert (er sammelt intern Zwischenergebnisse wie Feiertage).
+  BalanceCalculator get calc {
+    final c = _calc;
+    if (c != null && identical(c.data, data) && c.now == now) return c;
+    return _calc = BalanceCalculator(data, now);
+  }
+
+  BalanceCalculator? _calc;
+
+  /// Stundenkonto (siehe [BalanceCalculator.balance]). Der Teil bis gestern
+  /// ändert sich nur mit den Daten und wird zwischengespeichert – sonst
+  /// würde jede Sekunde jeder Tag seit Erfassungsbeginn neu berechnet.
+  Duration get balance {
+    final today = dayOf(now);
+    if (!identical(_pastFor, data) || _pastDay != today) {
+      _past = calc.balanceBefore(today);
+      _pastFor = data;
+      _pastDay = today;
+    }
+    return _past + calc.balanceToday();
+  }
+
+  Duration _past = Duration.zero;
+  AppData? _pastFor;
+  DateTime? _pastDay;
 
   bool get isRunning => data.running != null;
 
@@ -52,16 +77,42 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   bool stoppedToday = false;
 
   void _tick() {
+    final before = now;
     now = DateTime.now();
     // Regelmäßig neu laden, damit Aktionen aus der Benachrichtigung
     // (Hintergrund-Isolate) auch bei geöffneter App ankommen.
     if (++_tickCount % 5 == 0) {
-      reload();
-    } else {
+      _reloadIfChanged();
+    } else if (isRunning || before.minute != now.minute) {
+      // Ohne laufende Zeit ändert sich die Anzeige höchstens minütlich.
       notifyListeners();
     }
   }
 
+  /// Daten, wie sie zuletzt geladen wurden (zum Vergleich in
+  /// [_reloadIfChanged]).
+  String? _loadedJson;
+
+  static String _json(AppData d) =>
+      Repository.exportJson(d, now: DateTime(2000));
+
+  /// Wie [reload], meldet aber nur echte Änderungen weiter – das
+  /// regelmäßige Nachsehen soll nicht jedes Mal alles neu aufbauen und den
+  /// Sync vergleichen lassen.
+  Future<void> _reloadIfChanged() async {
+    final fresh = await _repo.exclusive(_repo.load);
+    final stopped = await _repo.stoppedOn(DateTime.now());
+    final json = _json(fresh);
+    if (json == (_loadedJson ??= _json(data)) && stopped == stoppedToday) {
+      if (isRunning) notifyListeners();
+      return;
+    }
+    data = fresh;
+    _loadedJson = json;
+    now = DateTime.now();
+    stoppedToday = stopped;
+    _changed();
+  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -97,6 +148,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> reload() async {
     data = await _repo.exclusive(_repo.load);
+    _loadedJson = null;
     now = DateTime.now();
     stoppedToday = await _repo.stoppedOn(now);
     _changed();

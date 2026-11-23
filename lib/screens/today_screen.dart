@@ -15,7 +15,7 @@ class TodayScreen extends StatelessWidget {
     final state = context.watch<AppState>();
     final calc = state.calc;
     final today = calc.statsFor(state.now);
-    final balance = calc.balance();
+    final balance = state.balance;
     final theme = Theme.of(context);
     final running = state.isRunning;
     final remaining = today.target - today.worked - today.credited;
