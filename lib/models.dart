@@ -464,3 +464,38 @@ String? validateSession(AppData data, WorkSession s, DateTime now,
 
 String _hm(DateTime t) =>
     '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// Trägt [a] in [absences] ein (ersetzt eine mit gleicher ID). Andere
+/// Abwesenheiten, die sich mit [a] überschneiden, weichen: Sie werden
+/// gekürzt, ganz überdeckte entfernt, und liegt [a] mitten darin, wird sie
+/// in zwei Teile geteilt (z. B. krank mitten im Urlaub – die Urlaubstage
+/// werden so wieder gutgeschrieben). Gibt die neue Liste zurück, sortiert
+/// wie gespeichert (neueste zuerst).
+List<Absence> fitAbsence(List<Absence> absences, Absence a,
+    {String Function() idFor = newId}) {
+  final out = <Absence>[];
+  DateTime prev(DateTime d) => DateTime(d.year, d.month, d.day - 1);
+  DateTime next(DateTime d) => DateTime(d.year, d.month, d.day + 1);
+  for (final o in absences) {
+    if (o.id == a.id) continue;
+    if (o.to.isBefore(a.from) || o.from.isAfter(a.to)) {
+      out.add(o);
+      continue;
+    }
+    Absence part(DateTime from, DateTime to, String id) => Absence(
+        id: id, type: o.type, from: from, to: to, note: o.note);
+    if (o.from.isBefore(a.from)) out.add(part(o.from, prev(a.from), o.id));
+    if (o.to.isAfter(a.to)) {
+      out.add(part(next(a.to), o.to,
+          o.from.isBefore(a.from) ? idFor() : o.id));
+    }
+  }
+  out.add(a);
+  return out..sort((x, y) => y.from.compareTo(x.from));
+}
+
+/// Abwesenheiten, die [fitAbsence] für [a] ändern würde (zur Anzeige).
+List<Absence> overlappingAbsences(List<Absence> absences, Absence a) => [
+      for (final o in absences)
+        if (o.id != a.id && !o.to.isBefore(a.from) && !o.from.isAfter(a.to)) o,
+    ];

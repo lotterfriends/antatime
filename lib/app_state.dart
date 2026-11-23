@@ -250,16 +250,15 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await _syncNotification();
   }
 
+  /// Speichert eine Abwesenheit; überschneidende werden aufgeteilt bzw.
+  /// gekürzt (siehe [fitAbsence]).
   Future<void> upsertAbsence(Absence absence) async {
     await _repo.exclusive(() async {
       data = await _repo.load();
-      final i = data.absences.indexWhere((a) => a.id == absence.id);
-      if (i >= 0) {
-        data.absences[i] = absence;
-      } else {
-        data.absences.add(absence);
-      }
-      data.absences.sort((a, b) => b.from.compareTo(a.from));
+      final list = fitAbsence(data.absences, absence);
+      data.absences
+        ..clear()
+        ..addAll(list);
       await _repo.saveAbsences(data.absences);
     });
     _changed();

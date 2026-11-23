@@ -158,6 +158,11 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
   late AbsenceType _type;
   late DateTimeRange _range;
   late final TextEditingController _note;
+  bool _saving = false;
+
+  /// Einmal vergeben: Ein zweiter Klick auf „Speichern“ legt keine zweite
+  /// Abwesenheit an.
+  late final String _id = widget.absence?.id ?? newId();
 
   @override
   void initState() {
@@ -195,10 +200,12 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
     final note = _note.text.trim();
     await context.read<AppState>().upsertAbsence(
       Absence(
-        id: widget.absence?.id ?? newId(),
+        id: _id,
         type: _type,
         from: _range.start,
         to: _range.end,
@@ -209,7 +216,23 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
   }
 
   Future<void> _delete() async {
-    await context.read<AppState>().deleteAbsence(widget.absence!.id);
+    final state = context.read<AppState>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Abwesenheit löschen?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: const Text('Abbrechen')),
+          FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Löschen')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await state.deleteAbsence(widget.absence!.id);
     if (mounted) Navigator.pop(context);
   }
 
@@ -218,11 +241,14 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
     final single = _range.start == _range.end;
     final calc = context.watch<AppState>().calc;
     final draft = Absence(
-      id: '',
+      id: _id,
       type: _type,
       from: _range.start,
       to: _range.end,
     );
+    // Abwesenheiten, die beim Speichern weichen (siehe fitAbsence).
+    final overlapping =
+        overlappingAbsences(context.read<AppState>().data.absences, draft);
     // Halbe Feiertage im Zeitraum: dort zählt die Abwesenheit nur halb.
     final halfDays = [
       for (
@@ -282,6 +308,19 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
                       : 'Halbe Feiertage – zählen nur als halber Tag',
                 ),
               ),
+            for (final o in overlapping)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(absenceIcon(o.type)),
+                title: Text('${o.label} '
+                    '${o.from == o.to ? formatDateShort(o.from) : '${formatDateShort(o.from)} – ${formatDateShort(o.to)}'}'),
+                subtitle: Text(!o.from.isBefore(draft.from) &&
+                        !o.to.isAfter(draft.to)
+                    ? 'Wird ersetzt'
+                    : o.from.isBefore(draft.from) && o.to.isAfter(draft.to)
+                        ? 'Wird aufgeteilt'
+                        : 'Wird gekürzt'),
+              ),
             TextField(
               controller: _note,
               decoration: const InputDecoration(labelText: 'Notiz (optional)'),
@@ -302,7 +341,9 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
           onPressed: () => Navigator.pop(context),
           child: const Text('Abbrechen'),
         ),
-        FilledButton(onPressed: _save, child: const Text('Speichern')),
+        FilledButton(
+            onPressed: _saving ? null : _save,
+            child: const Text('Speichern')),
       ],
     );
   }
