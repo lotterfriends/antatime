@@ -678,7 +678,17 @@ class SyncService extends ChangeNotifier {
     }
     switch (m) {
       case ChangesMessage(:final records):
-        _enqueue(() => _applyRemote(gen, records));
+        _enqueue(() async {
+          try {
+            await _applyRemote(gen, records);
+          } catch (e) {
+            // Nicht übernommen (z. B. Speicher voll): Verbindung trennen,
+            // bevor ein späteres CHANGES oder ACK die Sequenznummer darüber
+            // hinweg hebt – beim nächsten HELLO kommen sie erneut.
+            debugPrint('Sync: Änderungen nicht übernommen: $e');
+            _onClosed(gen, 'Änderungen konnten nicht gespeichert werden');
+          }
+        });
       case SyncedMessage(:final headSeq, :final serverTime):
         if (serverTime != null) {
           clockOffset = Duration(
@@ -719,7 +729,8 @@ class SyncService extends ChangeNotifier {
     final pushNeeded = await _store.exclusive(() async {
       final data = await _store.load();
       final st = await _loadState();
-      if (st == null) return false;
+      // Ein anderer Tab kann inzwischen einen anderen Code eingerichtet haben.
+      if (st == null || st.code != code) return false;
       st.diffLocal(recordsOf(data));
       var changed = false;
       for (final (seq, name, modified, value, deleted) in decoded) {
@@ -754,7 +765,9 @@ class SyncService extends ChangeNotifier {
   Future<void> _onSynced(int gen, int headSeq) async {
     if (gen != _generation) return;
     final st = await _loadState();
-    if (st == null) return;
+    // Nach jedem Warten erneut prüfen: Die Verbindung kann inzwischen
+    // getrennt worden sein – dann darf sie nicht wieder als online gelten.
+    if (gen != _generation || st == null || st.code != code) return;
     if (headSeq < st.seq) {
       // Der Server kennt weniger als wir (z. B. Datenbank neu aufgesetzt):
       // alles erneut hochladen und vollständig neu abgleichen.
@@ -767,13 +780,12 @@ class SyncService extends ChangeNotifier {
       _onClosed(gen, null);
       return;
     }
-    _live = true;
     // Nachholen abgeschlossen: Überschneidungen jetzt auflösen – auch ältere,
     // die vor dieser App-Version entstanden sind.
     await _store.exclusive(() async {
       final data = await _store.load();
       final st = await _loadState();
-      if (st == null) return;
+      if (st == null || st.code != code) return;
       st.diffLocal(recordsOf(data));
       final joinRunning = _joinRunning;
       _joinRunning = null;
@@ -788,6 +800,8 @@ class SyncService extends ChangeNotifier {
         notice = joinRunningDroppedNotice(lost!.start, DateTime.now());
       }
     });
+    if (gen != _generation) return;
+    _live = true;
     error = null;
     status = SyncStatus.online;
     _onlineLostAt = null;
@@ -846,7 +860,7 @@ class SyncService extends ChangeNotifier {
     _attempt = 0;
     final more = await _store.exclusive(() async {
       final st = await _loadState();
-      if (st == null) return false;
+      if (st == null || st.code != code) return false;
       st.acked(inflight.sent);
       // Alle kleineren Sequenznummern hat der Server vor dem ACK zugestellt.
       st.seq = max(st.seq, firstSeq + inflight.sent.length - 1);

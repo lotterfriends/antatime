@@ -261,6 +261,17 @@ void main() {
       // Gerätebezogene Einstellung bleibt unberührt.
       expect(dst.settings.showNotification, isFalse);
 
+      // Ungültiger Inhalt: Der bisherige Eintrag bleibt unverändert.
+      final before = jsonEncode(dst.sessions.single.toJson());
+      expect(() => applyRecord(dst, 's:a', {'id': 'a', 'start': 'kaputt'}),
+          throwsFormatException);
+      expect(() => applyRecord(dst, 's:a', 'kein Objekt'), throwsA(anything));
+      expect(() => applyRecord(dst, 's:a', {'id': 'b', 'start': '2026-11-03T08:00:00.000'}),
+          throwsFormatException);
+      expect(jsonEncode(dst.sessions.single.toJson()), before);
+      expect(() => applyRecord(dst, 'a:x', {'id': 'x'}), throwsA(anything));
+      expect(dst.absences, hasLength(1));
+
       applyRecord(dst, 's:a', null, deleted: true);
       expect(dst.sessions, isEmpty);
       // Unbekannte Datensätze (neuere App-Version) werden ignoriert.

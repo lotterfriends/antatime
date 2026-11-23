@@ -62,22 +62,28 @@ String? contentOf(AppData data, String name) {
 /// Übernimmt einen Datensatz in [data]. [value] ist der dekodierte JSON-Wert,
 /// `deleted` = Datensatz wurde gelöscht. Unbekannte Datensätze (z. B. von
 /// einer neueren App-Version) werden ignoriert.
+///
+/// Ungültige Inhalte werfen eine Ausnahme, bevor [data] verändert wird –
+/// sonst würde der bisherige Eintrag entfernt und die Löschung an alle
+/// Geräte verteilt.
 void applyRecord(AppData data, String name, Object? value, {bool deleted = false}) {
   final id = name.length > 2 ? name.substring(2) : '';
   switch (name.substring(0, min(2, name.length))) {
     case 's:':
+      final s =
+          deleted ? null : WorkSession.fromJson(value as Map<String, dynamic>);
+      if (s != null && s.id != id) throw const FormatException('ID passt nicht');
       data.sessions.removeWhere((s) => s.id == id);
-      if (!deleted) {
-        final s = WorkSession.fromJson(value as Map<String, dynamic>);
-        if (s.id != id) throw const FormatException('ID passt nicht');
+      if (s != null) {
         data.sessions.add(s);
         data.sessions.sort((a, b) => a.start.compareTo(b.start));
       }
     case 'a:':
+      final a =
+          deleted ? null : Absence.fromJson(value as Map<String, dynamic>);
+      if (a != null && a.id != id) throw const FormatException('ID passt nicht');
       data.absences.removeWhere((a) => a.id == id);
-      if (!deleted) {
-        final a = Absence.fromJson(value as Map<String, dynamic>);
-        if (a.id != id) throw const FormatException('ID passt nicht');
+      if (a != null) {
         data.absences.add(a);
         data.absences.sort((a, b) => b.from.compareTo(a.from));
       }
