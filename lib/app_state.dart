@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/widgets.dart';
 
@@ -216,11 +217,30 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _changed();
   }
 
-  Future<void> updateSettings(void Function(Settings s) change) async {
-    await _repo.exclusive(() async {
+  /// Ändert die Einstellungen. Ändert sich dabei eine Einstellung, die das
+  /// Stundenkonto bestimmt ([Settings.periodFields]), gilt sie erst ab heute:
+  /// Die bisherigen Werte bleiben für die Tage bis gestern gespeichert (siehe
+  /// [Settings.periods]). Gibt dann `true` zurück – mit
+  /// [applySettingsRetroactively] lässt sich das aufheben.
+  Future<bool> updateSettings(void Function(Settings s) change) async {
+    final kept = await _repo.exclusive(() async {
       data = await _repo.load();
-      change(data.settings);
-      await _repo.saveSettings(data.settings);
+      final s = data.settings;
+      final before = s.periodValues();
+      change(s);
+      final today = dayOf(DateTime.now());
+      final yesterday = DateTime(today.year, today.month, today.day - 1);
+      var kept = false;
+      if (!_sameValues(before, s.periodValues()) &&
+          s.startDate.isBefore(today)) {
+        // Heute schon geändert: Der Zeitraum bis gestern steht bereits.
+        kept = true;
+        if (s.periods.isEmpty || s.periods.last.until.isBefore(yesterday)) {
+          s.periods = [...s.periods, SettingsPeriod(yesterday, before)];
+        }
+      }
+      await _repo.saveSettings(s);
+      return kept;
     });
     _changed();
     if (data.settings.showNotification ||
@@ -229,6 +249,26 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       await NotificationService.instance.requestPermission();
     }
     await _syncNotification();
+    return kept;
+  }
+
+  static bool _sameValues(Map<String, dynamic> a, Map<String, dynamic> b) =>
+      jsonEncode(a) == jsonEncode(b);
+
+  /// Die heute geänderten Berechnungs-Einstellungen sollen doch auch für die
+  /// Vergangenheit gelten: den Zeitraum bis gestern wieder entfernen.
+  Future<void> applySettingsRetroactively() async {
+    await _repo.exclusive(() async {
+      data = await _repo.load();
+      final s = data.settings;
+      final today = dayOf(DateTime.now());
+      final yesterday = DateTime(today.year, today.month, today.day - 1);
+      if (s.periods.isNotEmpty && s.periods.last.until == yesterday) {
+        s.periods = s.periods.sublist(0, s.periods.length - 1);
+        await _repo.saveSettings(s);
+      }
+    });
+    _changed();
   }
 
   /// Darstellung des Tray-Symbols (nur dieses Gerät); beim Start mit

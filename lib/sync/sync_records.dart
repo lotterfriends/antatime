@@ -25,6 +25,7 @@ const syncedSettings = [
   'lateWorkFactor',
   'stackWorkFactors',
   'halfHolidays',
+  'periods',
 ];
 
 Map<String, String> recordsOf(AppData data) {

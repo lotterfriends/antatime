@@ -363,7 +363,7 @@ class _Summary extends StatelessWidget {
                   // Tage, die einen Zeitraum nicht unterbrechen: freie
                   // Tage und ganze Feiertage.
                   isGap: (d) =>
-                      !calc.settings.workdays.contains(d.weekday) ||
+                      !calc.settingsFor(d).workdays.contains(d.weekday) ||
                       calc.holidayFor(d) != null,
                 ),
               ),
@@ -422,7 +422,7 @@ Map<AbsenceType, List<_TypeDay>> _typeDays(BalanceCalculator calc, int year) {
     d.year == year;
     d = DateTime(d.year, d.month, d.day + 1)
   ) {
-    if (!calc.settings.workdays.contains(d.weekday)) continue;
+    if (!calc.settingsFor(d).workdays.contains(d.weekday)) continue;
     final a = calc.absenceFor(d);
     // Halber Feiertag: je ein halber Tag Feiertag und ggf. Abwesenheit.
     final half = calc.halfHolidayFor(d);
@@ -632,7 +632,6 @@ class _MonthGrid extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final c = theme.colorScheme;
-    final workdays = calc.settings.workdays;
     final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
     final lead = month.weekday - 1; // Montag zuerst
     // Immer sechs Wochen, damit alle Monate gleich hoch sind.
@@ -645,7 +644,7 @@ class _MonthGrid extends StatelessWidget {
       final absence = calc.absenceFor(day);
       final selected =
           selFrom != null && !day.isBefore(selFrom!) && !day.isAfter(selTo!);
-      final freeDay = !workdays.contains(day.weekday);
+      final freeDay = !calc.settingsFor(day).workdays.contains(day.weekday);
 
       // Wie im Datumsauswahl-Dialog: einzelne Tage als Kreis, aufeinander
       // folgende Tage einer Woche als durchgehendes Band mit runden Enden.

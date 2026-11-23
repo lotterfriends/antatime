@@ -230,7 +230,7 @@ class _AbsenceEditorState extends State<_AbsenceEditor> {
         !d.isAfter(_range.end);
         d = DateTime(d.year, d.month, d.day + 1)
       )
-        if (calc.settings.workdays.contains(d.weekday) &&
+        if (calc.settingsFor(d).workdays.contains(d.weekday) &&
             calc.halfHolidayFor(d) != null)
           calc.halfHolidayFor(d)!,
     ];

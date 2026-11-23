@@ -135,7 +135,9 @@ class Settings {
     this.reminderMinutes,
     this.targetReminder = true,
     this.halfHolidays = true,
-  })  : workdays = workdays ?? {1, 2, 3, 4, 5},
+    List<SettingsPeriod>? periods,
+  })  : periods = periods ?? [],
+        workdays = workdays ?? {1, 2, 3, 4, 5},
         startDate = dayOf(startDate ?? DateTime.now());
 
   /// Startwert des Stundenkontos in Minuten (kann negativ sein).
@@ -189,6 +191,48 @@ class Settings {
   /// zweite Hälfte, die Tage sind ganz frei (wie ein Feiertag).
   bool halfHolidays;
 
+  /// Frühere Werte der Berechnungs-Einstellungen ([periodFields]), nach
+  /// [SettingsPeriod.until] aufsteigend sortiert: Für Tage bis dahin gelten
+  /// sie statt der aktuellen. So ändert eine neue Einstellung (z. B. weniger
+  /// Arbeitstage) nicht rückwirkend das Stundenkonto.
+  List<SettingsPeriod> periods;
+
+  /// Einstellungen, die das Stundenkonto eines Tages bestimmen.
+  static const periodFields = [
+    'weeklyHours',
+    'dailyHours',
+    'workdays',
+    'federalState',
+    'absenceWorkFactor',
+    'lateWorkMinutes',
+    'lateWorkFactor',
+    'stackWorkFactors',
+    'halfHolidays',
+  ];
+
+  /// Die aktuellen Werte von [periodFields] (fehlende als `null`).
+  Map<String, dynamic> periodValues() {
+    final j = toJson();
+    return {for (final f in periodFields) f: j[f]};
+  }
+
+  /// Index des Zeitraums in [periods], der für [day] gilt; `-1` = aktuelle
+  /// Einstellungen.
+  int periodIndexFor(DateTime day) {
+    final d = dayOf(day);
+    for (var i = 0; i < periods.length; i++) {
+      if (!d.isAfter(periods[i].until)) return i;
+    }
+    return -1;
+  }
+
+  /// Einstellungen, wie sie am Tag des Zeitraums [index] galten.
+  Settings forPeriod(int index) {
+    if (index < 0) return this;
+    return Settings.fromJson({...toJson(), ...periods[index].values})
+      ..periods = const [];
+  }
+
   int get dailyTargetMinutes => (dailyHours * 60).round();
 
   Map<String, dynamic> toJson() => {
@@ -206,6 +250,8 @@ class Settings {
         if (reminderMinutes != null) 'reminderMinutes': reminderMinutes,
         'targetReminder': targetReminder,
         'halfHolidays': halfHolidays,
+        if (periods.isNotEmpty)
+          'periods': [for (final p in periods) p.toJson()],
       };
 
   factory Settings.fromJson(Map<String, dynamic> j) => Settings(
@@ -228,6 +274,28 @@ class Settings {
         reminderMinutes: (j['reminderMinutes'] as num?)?.toInt(),
         targetReminder: j['targetReminder'] as bool? ?? true,
         halfHolidays: j['halfHolidays'] as bool? ?? true,
+        periods: [
+          for (final p in (j['periods'] as List?) ?? const [])
+            SettingsPeriod.fromJson(p as Map<String, dynamic>),
+        ]..sort((a, b) => a.until.compareTo(b.until)),
+      );
+}
+
+/// Frühere Berechnungs-Einstellungen, gültig für alle Tage bis
+/// einschließlich [until] (bzw. seit dem vorigen Zeitraum).
+class SettingsPeriod {
+  SettingsPeriod(DateTime until, this.values) : until = dayOf(until);
+
+  final DateTime until;
+
+  /// Werte von [Settings.periodFields] (fehlende als `null`).
+  final Map<String, dynamic> values;
+
+  Map<String, dynamic> toJson() => {'until': dayKey(until), 'values': values};
+
+  factory SettingsPeriod.fromJson(Map<String, dynamic> j) => SettingsPeriod(
+        DateTime.parse(j['until'] as String),
+        Map<String, dynamic>.from(j['values'] as Map),
       );
 }
 

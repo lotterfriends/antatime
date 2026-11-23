@@ -15,6 +15,27 @@ import '../widgets/autostart_tile.dart';
 import '../widgets/backup_tiles.dart';
 import '../widgets/sync_tiles.dart';
 
+/// Speichert eine Einstellung. Gilt eine Änderung am Stundenkonto erst ab
+/// heute (siehe [AppState.updateSettings]), lässt sie sich per Snackbar auch
+/// rückwirkend anwenden.
+Future<void> _updateSettings(
+    BuildContext context, void Function(Settings s) change) async {
+  final state = context.read<AppState>();
+  final messenger = ScaffoldMessenger.of(context);
+  if (!await state.updateSettings(change)) return;
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: const Text(
+          'Gilt ab heute – das Stundenkonto bis gestern bleibt unverändert.'),
+      duration: const Duration(seconds: 10),
+      action: SnackBarAction(
+        label: 'Rückwirkend',
+        onPressed: state.applySettingsRetroactively,
+      ),
+    ));
+}
+
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -45,7 +66,8 @@ class SettingsScreen extends StatelessWidget {
                 allowNegative: true,
               );
               if (v != null) {
-                await state.updateSettings((x) => x.startBalanceMinutes = v);
+                if (!context.mounted) return;
+                await _updateSettings(context, (x) => x.startBalanceMinutes = v);
               }
             },
           ),
@@ -62,7 +84,7 @@ class SettingsScreen extends StatelessWidget {
                 firstDate: DateTime(2000),
                 lastDate: DateTime.now().add(const Duration(days: 365)),
               );
-              if (d != null) await state.updateSettings((x) => x.startDate = d);
+              if (d != null && context.mounted) await _updateSettings(context, (x) => x.startDate = d);
             },
           ),
           _Section('Arbeitszeit'),
@@ -78,7 +100,8 @@ class SettingsScreen extends StatelessWidget {
                   hint: 'z. B. 40 oder 38:30',
                   initial: formatHoursNumber(s.weeklyHours));
               if (v != null) {
-                await state.updateSettings((x) {
+                if (!context.mounted) return;
+                await _updateSettings(context, (x) {
                   x.weeklyHours = v / 60;
                   if (x.workdays.isNotEmpty) {
                     x.dailyHours = x.weeklyHours / x.workdays.length;
@@ -101,7 +124,8 @@ class SettingsScreen extends StatelessWidget {
                   initial:
                       formatDuration(Duration(minutes: s.dailyTargetMinutes)));
               if (v != null) {
-                await state.updateSettings((x) {
+                if (!context.mounted) return;
+                await _updateSettings(context, (x) {
                   x.dailyHours = v / 60;
                   x.weeklyHours = x.dailyHours * x.workdays.length;
                 });
@@ -123,7 +147,7 @@ class SettingsScreen extends StatelessWidget {
                     mouseCursor: clickCursor,
                     label: Text(weekdayShort[wd - 1]),
                     selected: s.workdays.contains(wd),
-                    onSelected: (sel) => state.updateSettings((x) {
+                    onSelected: (sel) => _updateSettings(context, (x) {
                       if (sel) {
                         x.workdays.add(wd);
                       } else {
@@ -156,7 +180,8 @@ class SettingsScreen extends StatelessWidget {
             onTap: () async {
               final v = await _askFactor(context, s.absenceWorkFactor);
               if (v != null) {
-                await state.updateSettings((x) => x.absenceWorkFactor = v);
+                if (!context.mounted) return;
+                await _updateSettings(context, (x) => x.absenceWorkFactor = v);
               }
             },
           ),
@@ -170,7 +195,7 @@ class SettingsScreen extends StatelessWidget {
             value: s.lateWorkMinutes != null,
             onChanged: (v) async {
               if (!v) {
-                await state.updateSettings((x) => x.lateWorkMinutes = null);
+                await _updateSettings(context, (x) => x.lateWorkMinutes = null);
                 return;
               }
               final m = await _pickTime(context, 20 * 60, 'Faktor gilt ab');
@@ -179,7 +204,8 @@ class SettingsScreen extends StatelessWidget {
                   context, s.lateWorkFactor == 1 ? 1.5 : s.lateWorkFactor,
                   lateWork: true);
               if (f == null) return;
-              await state.updateSettings((x) {
+              if (!context.mounted) return;
+              await _updateSettings(context, (x) {
                 x.lateWorkMinutes = m;
                 x.lateWorkFactor = f;
               });
@@ -195,7 +221,8 @@ class SettingsScreen extends StatelessWidget {
                 final m = await _pickTime(
                     context, s.lateWorkMinutes!, 'Faktor gilt ab');
                 if (m != null) {
-                  await state.updateSettings((x) => x.lateWorkMinutes = m);
+                  if (!context.mounted) return;
+                  await _updateSettings(context, (x) => x.lateWorkMinutes = m);
                 }
               },
             ),
@@ -208,7 +235,8 @@ class SettingsScreen extends StatelessWidget {
                 final v = await _askFactor(context, s.lateWorkFactor,
                     lateWork: true);
                 if (v != null) {
-                  await state.updateSettings((x) => x.lateWorkFactor = v);
+                  if (!context.mounted) return;
+                  await _updateSettings(context, (x) => x.lateWorkFactor = v);
                 }
               },
             ),
@@ -222,7 +250,7 @@ class SettingsScreen extends StatelessWidget {
               subtitle: Text(_stackExample(s)),
               value: s.stackWorkFactors,
               onChanged: (v) =>
-                  state.updateSettings((x) => x.stackWorkFactors = v),
+                  _updateSettings(context, (x) => x.stackWorkFactors = v),
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -242,7 +270,8 @@ class SettingsScreen extends StatelessWidget {
             onTap: () async {
               final v = await _pickFederalState(context, s.federalState);
               if (v != null) {
-                await state.updateSettings(
+                if (!context.mounted) return;
+                await _updateSettings(context, 
                     (x) => x.federalState = v.state);
               }
             },
@@ -258,7 +287,7 @@ class SettingsScreen extends StatelessWidget {
                 : 'Der Arbeitgeber schenkt die zweite Tageshälfte: '
                     '24.12. und 31.12. sind ganz frei, kein Urlaub nötig'),
             value: !s.halfHolidays,
-            onChanged: (v) => state.updateSettings((x) => x.halfHolidays = !v),
+            onChanged: (v) => _updateSettings(context, (x) => x.halfHolidays = !v),
           ),
           if (NotificationService.instance.supported ||
               DesktopNotifications.supported)
@@ -271,7 +300,7 @@ class SettingsScreen extends StatelessWidget {
                   'Arbeitszeit direkt im Benachrichtigungsbereich steuern'),
               value: s.showNotification,
               onChanged: (v) =>
-                  state.updateSettings((x) => x.showNotification = v),
+                  _updateSettings(context, (x) => x.showNotification = v),
             ),
             SwitchListTile(
               secondary: const Icon(Icons.alarm),
@@ -282,12 +311,13 @@ class SettingsScreen extends StatelessWidget {
               value: s.reminderMinutes != null,
               onChanged: (v) async {
                 if (!v) {
-                  await state.updateSettings((x) => x.reminderMinutes = null);
+                  await _updateSettings(context, (x) => x.reminderMinutes = null);
                   return;
                 }
                 final m = await _pickReminderTime(context, 9 * 60);
                 if (m != null) {
-                  await state.updateSettings((x) => x.reminderMinutes = m);
+                  if (!context.mounted) return;
+                  await _updateSettings(context, (x) => x.reminderMinutes = m);
                 }
               },
             ),
@@ -301,7 +331,8 @@ class SettingsScreen extends StatelessWidget {
                   final m =
                       await _pickReminderTime(context, s.reminderMinutes!);
                   if (m != null) {
-                    await state.updateSettings((x) => x.reminderMinutes = m);
+                    if (!context.mounted) return;
+                    await _updateSettings(context, (x) => x.reminderMinutes = m);
                   }
                 },
               ),
@@ -316,7 +347,7 @@ class SettingsScreen extends StatelessWidget {
                   'gearbeitet sind (nicht an Feiertagen und bei Abwesenheit)'),
               value: s.targetReminder,
               onChanged: (v) async {
-                await state.updateSettings((x) => x.targetReminder = v);
+                await _updateSettings(context, (x) => x.targetReminder = v);
                 if (v) await DesktopNotifications.instance.requestPermission();
               },
             ),
@@ -330,7 +361,7 @@ class SettingsScreen extends StatelessWidget {
                   'Infobereich'),
               value: s.showNotification,
               onChanged: (v) =>
-                  state.updateSettings((x) => x.showNotification = v),
+                  _updateSettings(context, (x) => x.showNotification = v),
             ),
             if (s.showNotification && TrayService.iconStyleSupported)
               ListTile(

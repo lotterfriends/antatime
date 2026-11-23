@@ -117,32 +117,69 @@ class BalanceCalculator {
   final AppData data;
   final DateTime now;
   final Map<String, List<WorkSession>> _byDay = {};
-  final Map<int, Map<String, Absence>> _holidaysByYear = {};
-  final Map<int, Map<String, Absence>> _christmasByYear = {};
+  /// Feiertage je Jahr und Einstellungs-Zeitraum (`'$year/$period'`).
+  final Map<String, Map<String, Absence>> _holidaysByYear = {};
+  final Map<String, Map<String, Absence>> _christmasByYear = {};
+  final Map<int, Settings> _periodSettings = {};
 
+  /// Aktuelle Einstellungen.
   Settings get settings => data.settings;
+
+  /// Einstellungen, die am [day] galten (siehe [Settings.periods]).
+  Settings settingsFor(DateTime day) =>
+      _settingsOf(settings.periodIndexFor(day));
+
+  Settings _settingsOf(int period) =>
+      _periodSettings.putIfAbsent(period, () => settings.forPeriod(period));
+
+  /// Zeiträume, die Tage im Jahr [year] betreffen (`-1` = aktuelle).
+  Iterable<int> _periodsIn(int year) sync* {
+    final periods = settings.periods;
+    final first = DateTime(year), last = DateTime(year, 12, 31);
+    for (var i = 0; i < periods.length; i++) {
+      final from = i == 0 ? null : periods[i - 1].until;
+      if (!periods[i].until.isBefore(first) &&
+          (from == null || from.isBefore(last))) {
+        yield i;
+      }
+    }
+    if (periods.isEmpty || periods.last.until.isBefore(last)) yield -1;
+  }
 
   /// Soll-Zeit des Tages; an halben Feiertagen die Hälfte.
   Duration targetFor(DateTime day) {
-    if (!settings.workdays.contains(day.weekday)) return Duration.zero;
-    final full = Duration(minutes: settings.dailyTargetMinutes);
+    final s = settingsFor(day);
+    if (!s.workdays.contains(day.weekday)) return Duration.zero;
+    final full = Duration(minutes: s.dailyTargetMinutes);
     return halfHolidayFor(day) != null ? full ~/ 2 : full;
   }
 
   /// Halbe Feiertage (Heiligabend/Silvester) des Jahres als (nicht
   /// gespeicherte) Abwesenheiten. Ist eingestellt, dass diese Tage ganz frei
   /// sind, zählen sie stattdessen als ganze Feiertage (siehe [holidaysIn]).
-  List<Absence> halfHolidaysIn(int year) =>
-      _halfHolidayMap(year).values.toList(growable: false);
+  List<Absence> halfHolidaysIn(int year) => _inYear(year, _halfHolidayMap);
 
-  Map<String, Absence> _halfHolidayMap(int year) {
-    if (!settings.halfHolidays) return const {};
-    return _christmasMap(year);
+  /// Einträge der Jahres-Tabellen aller Zeiträume, jeweils nur für die Tage,
+  /// an denen der Zeitraum galt.
+  List<Absence> _inYear(
+      int year, Map<String, Absence> Function(int year, int period) map) {
+    final out = <Absence>[];
+    for (final p in _periodsIn(year)) {
+      for (final a in map(year, p).values) {
+        if (settings.periodIndexFor(a.from) == p) out.add(a);
+      }
+    }
+    return out..sort((a, b) => a.from.compareTo(b.from));
+  }
+
+  Map<String, Absence> _halfHolidayMap(int year, int period) {
+    if (!_settingsOf(period).halfHolidays) return const {};
+    return _christmasMap(year, period);
   }
 
   /// Heiligabend und Silvester – halb oder ganz frei je nach Einstellung.
-  Map<String, Absence> _christmasMap(int year) =>
-      _christmasByYear.putIfAbsent(year, () => {
+  Map<String, Absence> _christmasMap(int year, int period) =>
+      _christmasByYear.putIfAbsent('$year/$period', () => {
           for (final h in halfHolidaysFor(year))
             dayKey(h.date): Absence(
               id: 'christmas-${dayKey(h.date)}',
@@ -150,13 +187,13 @@ class BalanceCalculator {
               from: h.date,
               to: h.date,
               note: h.name,
-              half: settings.halfHolidays,
+              half: _settingsOf(period).halfHolidays,
             ),
         });
 
   /// Halber Feiertag am [day], falls vorhanden.
   Absence? halfHolidayFor(DateTime day) =>
-      _halfHolidayMap(day.year)[dayKey(day)];
+      _halfHolidayMap(day.year, settings.periodIndexFor(day))[dayKey(day)];
 
   /// Arbeitstage, die [a] belegt: halbe Feiertage zählen halb, ganze
   /// Feiertage gar nicht (außer [a] ist selbst ein Feiertag).
@@ -165,7 +202,7 @@ class BalanceCalculator {
     for (var d = a.from;
         !d.isAfter(a.to);
         d = DateTime(d.year, d.month, d.day + 1)) {
-      if (!settings.workdays.contains(d.weekday)) continue;
+      if (!settingsFor(d).workdays.contains(d.weekday)) continue;
       if (a.isHoliday) {
         n += a.half ? 0.5 : 1;
       } else if (holidayFor(d) == null) {
@@ -178,12 +215,12 @@ class BalanceCalculator {
   /// Ganze Feiertage des Jahres als (nicht gespeicherte) Abwesenheiten:
   /// gesetzliche Feiertage im gewählten Bundesland sowie Heiligabend und
   /// Silvester, falls diese ganz frei sind.
-  List<Absence> holidaysIn(int year) =>
-      _holidayMap(year).values.toList(growable: false);
+  List<Absence> holidaysIn(int year) => _inYear(year, _holidayMap);
 
-  Map<String, Absence> _holidayMap(int year) {
-    final state = settings.federalState;
-    return _holidaysByYear.putIfAbsent(year, () => {
+  Map<String, Absence> _holidayMap(int year, int period) {
+    final s = _settingsOf(period);
+    final state = s.federalState;
+    return _holidaysByYear.putIfAbsent('$year/$period', () => {
           if (state != null)
             for (final h in holidaysFor(state, year))
               dayKey(h.date): Absence(
@@ -193,11 +230,12 @@ class BalanceCalculator {
                 to: h.date,
                 note: h.name,
               ),
-          if (!settings.halfHolidays) ..._christmasMap(year),
+          if (!s.halfHolidays) ..._christmasMap(year, period),
         });
   }
 
-  Absence? holidayFor(DateTime day) => _holidayMap(day.year)[dayKey(day)];
+  Absence? holidayFor(DateTime day) =>
+      _holidayMap(day.year, settings.periodIndexFor(day))[dayKey(day)];
 
   /// Abwesenheit des Tages; ein Feiertag hat Vorrang (z. B. im Urlaub).
   Absence? absenceFor(DateTime day) {
@@ -217,6 +255,7 @@ class BalanceCalculator {
     final sessions = sessionsFor(d);
     final worked =
         sessions.fold(Duration.zero, (sum, s) => sum + s.durationAt(now));
+    final settings = settingsFor(d);
     return DayStats(
       day: d,
       sessions: sessions,
@@ -235,7 +274,7 @@ class BalanceCalculator {
   /// Arbeitszeit des Tages nach der eingestellten Uhrzeit. Läuft eine
   /// Arbeitszeit über Mitternacht, zählt auch die Zeit danach als spät.
   Duration _lateWorked(DateTime day, List<WorkSession> sessions) {
-    final minutes = settings.lateWorkMinutes;
+    final minutes = settingsFor(day).lateWorkMinutes;
     if (minutes == null) return Duration.zero;
     final from = DateTime(day.year, day.month, day.day, 0, minutes);
     var total = Duration.zero;
