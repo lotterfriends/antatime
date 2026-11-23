@@ -14,7 +14,11 @@ import 'repository.dart';
 
 const _notificationId = 1;
 const _channelId = 'tracking';
+/// Ältere Benachrichtigungen schalten um; neue sagen, was gemeint ist
+/// ([_actionStart]/[_actionPause]) – der angezeigte Zustand kann veraltet
+/// sein (z. B. inzwischen auf einem anderen Gerät gestartet).
 const _actionToggle = 'toggle';
+const _actionPause = 'pause';
 const _categoryRunning = 'running';
 const _categoryPaused = 'paused';
 
@@ -39,6 +43,7 @@ Future<void> notificationActionBackground(NotificationResponse response) async {
   final action = response.actionId;
   if (action != _actionToggle &&
       action != _actionStart &&
+      action != _actionPause &&
       action != _actionFinish) {
     return;
   }
@@ -53,9 +58,12 @@ Future<void> notificationActionBackground(NotificationResponse response) async {
       await repo.saveSessions(data.sessions);
     }
     await repo.markStopped(now);
-  } else if (action == _actionToggle || data.running == null) {
-    Repository.toggle(data, now);
+  } else if (action == _actionToggle ||
+      (action == _actionStart && data.running == null) ||
+      (action == _actionPause && data.running != null)) {
+    final started = Repository.toggle(data, now);
     await repo.saveSessions(data.sessions);
+    if (started) await repo.clearStopped();
   }
   await NotificationService.instance.init();
   await NotificationService.instance.update(data);
@@ -80,6 +88,9 @@ class NotificationService {
 
   /// „Starten“ aus der Erinnerung im Vordergrund (iOS).
   VoidCallback? onStart;
+
+  /// „Pause“ in der Benachrichtigung (iOS, im Vordergrund).
+  VoidCallback? onPause;
 
   /// „Feierabend“ aus der Erinnerung an die Tagesstunden im Vordergrund (iOS).
   VoidCallback? onFinish;
@@ -109,10 +120,10 @@ class NotificationService {
       requestSoundPermission: false,
       notificationCategories: [
         DarwinNotificationCategory(_categoryRunning, actions: [
-          DarwinNotificationAction.plain(_actionToggle, 'Pause'),
+          DarwinNotificationAction.plain(_actionPause, 'Pause'),
         ]),
         DarwinNotificationCategory(_categoryPaused, actions: [
-          DarwinNotificationAction.plain(_actionToggle, 'Start'),
+          DarwinNotificationAction.plain(_actionStart, 'Start'),
         ]),
         DarwinNotificationCategory(_categoryReminder, actions: [
           DarwinNotificationAction.plain(_actionStart, 'Starten'),
@@ -126,6 +137,7 @@ class NotificationService {
       settings: InitializationSettings(android: android, iOS: darwin),
       onDidReceiveNotificationResponse: (r) {
         if (r.actionId == _actionToggle) onToggle?.call();
+        if (r.actionId == _actionPause) onPause?.call();
         if (r.actionId == _actionStart) onStart?.call();
         if (r.actionId == _actionFinish) onFinish?.call();
       },

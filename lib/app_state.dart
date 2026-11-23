@@ -19,9 +19,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
     NotificationService.instance.onToggle = toggle;
-    NotificationService.instance.onStart = () {
-      if (!isRunning) toggle();
-    };
+    NotificationService.instance.onStart = () => toggle(to: true);
+    NotificationService.instance.onPause = () => toggle(to: false);
     NotificationService.instance.onFinish = finishDay;
     NotificationService.instance.onDataChanged = reload;
     this.sync.onRemoteData = _onRemoteData;
@@ -158,11 +157,16 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> _syncNotification() =>
       NotificationService.instance.update(data);
 
-  Future<void> toggle() async {
+  /// Start/Pause umschalten. Mit [to] nur, falls nötig: `true` = starten,
+  /// `false` = pausieren – entschieden auf frisch geladenen Daten. Sonst
+  /// könnte „Starten“ aus einer Erinnerung oder dem Infobereich pausieren,
+  /// wenn inzwischen anderswo gestartet wurde.
+  Future<void> toggle({bool? to}) async {
     final started = await _repo.exclusive(() async {
       // Vor dem Umschalten frisch laden, falls die Benachrichtigung
       // inzwischen den Zustand geändert hat.
       data = await _repo.load();
+      if (to != null && (data.running != null) == to) return null;
       final started = Repository.toggle(data, DateTime.now());
       now = DateTime.now();
       await _repo.saveSessions(data.sessions);
@@ -173,7 +177,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       return started;
     });
     _changed();
-    if (started) await NotificationService.instance.requestPermission();
+    if (started == true) await NotificationService.instance.requestPermission();
     await _syncNotification();
   }
 

@@ -214,7 +214,7 @@ class DesktopNotifications {
     // Windows meldet die Argumente des Knopfs als actionId, beim Klick auf
     // die Benachrichtigung die payload.
     if (r.actionId == _actionStart) {
-      if (!state.isRunning) await state.toggle();
+      await state.toggle(to: true);
       await _dismiss();
     } else if (r.actionId == _actionFinish) {
       await state.finishDay();

@@ -39,7 +39,8 @@ class TrayService with TrayListener, WindowListener {
   static bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
   static bool get _isMacOS => defaultTargetPlatform == TargetPlatform.macOS;
 
-  static const _kToggle = 'toggle';
+  static const _kStart = 'start';
+  static const _kPause = 'pause';
   static const _kFinish = 'finish';
   static const _kOpen = 'open';
   static const _kQuit = 'quit';
@@ -110,7 +111,12 @@ class TrayService with TrayListener, WindowListener {
       MenuItem(label: m.current, disabled: true),
       MenuItem(label: m.today, disabled: true),
       MenuItem.separator(),
-      MenuItem(key: _kToggle, label: m.running ? 'Pause' : 'Start'),
+      // Die Aktion steckt im Schlüssel: Gilt der angezeigte Zustand nicht
+      // mehr (z. B. inzwischen auf einem anderen Gerät gestartet), soll
+      // „Start“ nicht pausieren.
+      MenuItem(
+          key: m.running ? _kPause : _kStart,
+          label: m.running ? 'Pause' : 'Start'),
       MenuItem(key: _kFinish, label: 'Feierabend', disabled: m.finished),
       MenuItem.separator(),
       MenuItem(key: _kOpen, label: 'AnTaTime öffnen'),
@@ -146,8 +152,10 @@ class TrayService with TrayListener, WindowListener {
     final state = _state;
     if (state == null) return;
     switch (menuItem.key) {
-      case _kToggle:
-        state.toggle();
+      case _kStart:
+        state.toggle(to: true);
+      case _kPause:
+        state.toggle(to: false);
       case _kFinish:
         state.finishDay();
       case _kOpen:
