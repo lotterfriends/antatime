@@ -38,19 +38,34 @@ class WorkSession {
   WorkSession copy() =>
       WorkSession(id: id, start: start, end: end, note: note);
 
+  /// `start`/`end` sind Ortszeit ohne Zone (wie seit jeher, für ältere
+  /// App-Versionen). `startUtc`/`endUtc` halten zusätzlich den exakten
+  /// Zeitpunkt fest und gehen vor: Ortszeit allein ist in der doppelten
+  /// Stunde der Zeitumstellung mehrdeutig und verschiebt sich, wenn die
+  /// Zeitzone des Geräts wechselt. Ältere Versionen lassen die Felder beim
+  /// Speichern weg – dann gilt wieder die Ortszeit.
   Map<String, dynamic> toJson() => {
         'id': id,
-        'start': start.toIso8601String(),
-        if (end != null) 'end': end!.toIso8601String(),
+        'start': start.toLocal().toIso8601String(),
+        'startUtc': start.toUtc().toIso8601String(),
+        if (end != null) 'end': end!.toLocal().toIso8601String(),
+        if (end != null) 'endUtc': end!.toUtc().toIso8601String(),
         if (note != null && note!.isNotEmpty) 'note': note,
       };
 
   factory WorkSession.fromJson(Map<String, dynamic> j) => WorkSession(
         id: j['id'] as String,
-        start: DateTime.parse(j['start'] as String),
-        end: j['end'] == null ? null : DateTime.parse(j['end'] as String),
+        start: _time(j['startUtc'], j['start'])!,
+        end: _time(j['endUtc'], j['end']),
         note: j['note'] as String?,
       );
+
+  static DateTime? _time(Object? utc, Object? local) {
+    if (utc is String) return DateTime.parse(utc).toLocal();
+    if (local is String) return DateTime.parse(local).toLocal();
+    if (local == null) return null;
+    throw const FormatException('Ungültige Zeit');
+  }
 }
 
 enum AbsenceType {

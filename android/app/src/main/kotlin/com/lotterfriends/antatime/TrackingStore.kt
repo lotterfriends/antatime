@@ -74,15 +74,39 @@ class TrackingStore(context: Context) {
     private fun format(instant: Instant): String =
         LocalDateTime.ofInstant(instant, zone).format(isoLocal)
 
+    /**
+     * Zeitpunkt aus `<name>Utc` (exakt, siehe WorkSession.toJson in Dart) oder
+     * sonst aus der Ortszeit `<name>`; `null`, wenn keins von beiden da ist.
+     */
+    private fun time(o: JSONObject, name: String): Instant? {
+        val utc = o.optString("${name}Utc").takeIf { it.isNotEmpty() && !o.isNull("${name}Utc") }
+        if (utc != null) {
+            try { return Instant.parse(utc) } catch (e: Exception) { /* Ortszeit versuchen */ }
+        }
+        val local = if (o.has(name) && !o.isNull(name)) o.getString(name) else return null
+        return parse(local)
+    }
+
+    private fun isRunning(o: JSONObject) = !o.has("end") || o.isNull("end")
+
+    private fun setEnd(o: JSONObject, end: Instant?) {
+        if (end == null) {
+            o.remove("end")
+            o.remove("endUtc")
+        } else {
+            o.put("end", format(end))
+            o.put("endUtc", end.toString())
+        }
+    }
+
     fun sessions(): List<Session> {
         val arr = sessionsJson()
         val result = ArrayList<Session>(arr.length())
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            val start = o.optString("start").takeIf { it.isNotEmpty() } ?: continue
-            val end = if (o.has("end") && !o.isNull("end")) o.getString("end") else null
             try {
-                result.add(Session(parse(start), end?.let { parse(it) }))
+                val start = time(o, "start") ?: continue
+                result.add(Session(start, if (isRunning(o)) null else time(o, "end")))
             } catch (e: Exception) {
                 // Ungültigen Eintrag überspringen
             }
@@ -114,8 +138,8 @@ class TrackingStore(context: Context) {
         val arr = sessionsJson()
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            if (!o.has("end") || o.isNull("end")) {
-                o.put("end", format(now))
+            if (isRunning(o)) {
+                setEnd(o, now)
                 prefs.edit().putString(KEY_SESSIONS, arr.toString()).commit()
                 return false
             }
@@ -126,14 +150,14 @@ class TrackingStore(context: Context) {
         var lastEnd: Instant? = null
         for (i in 0 until arr.length()) {
             val o = arr.optJSONObject(i) ?: continue
-            if (!o.has("end") || o.isNull("end")) continue
-            val end = try { parse(o.getString("end")) } catch (e: Exception) { continue }
+            if (isRunning(o)) continue
+            val end = try { time(o, "end") } catch (e: Exception) { null } ?: continue
             if (lastEnd == null || end.isAfter(lastEnd)) { last = o; lastEnd = end }
         }
         if (last != null && lastEnd != null) {
             val gap = now.toEpochMilli() - lastEnd.toEpochMilli()
             if (gap in 0 until MIN_BREAK_MS) {
-                last.remove("end")
+                setEnd(last, null)
                 prefs.edit()
                     .putString(KEY_SESSIONS, arr.toString())
                     .remove(KEY_STOPPED_DAY)
@@ -143,7 +167,11 @@ class TrackingStore(context: Context) {
         }
         val id = (now.toEpochMilli() * 1000).toString(36) +
             Random.nextLong(0, 1L shl 32).toString(36)
-        arr.put(JSONObject().put("id", id).put("start", format(now)))
+        arr.put(
+            JSONObject().put("id", id)
+                .put("start", format(now))
+                .put("startUtc", now.toString())
+        )
         prefs.edit()
             .putString(KEY_SESSIONS, arr.toString())
             .remove(KEY_STOPPED_DAY)
