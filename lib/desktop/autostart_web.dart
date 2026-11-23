@@ -10,4 +10,6 @@ class Autostart {
   Future<bool> isEnabled() async => false;
 
   Future<void> setEnabled(bool enabled) async {}
+
+  Future<void> refresh() async {}
 }

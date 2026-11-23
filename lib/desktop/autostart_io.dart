@@ -58,6 +58,35 @@ class Autostart {
     return false;
   }
 
+  /// Ist der Autostart eingeschaltet, zeigt aber auf eine andere Programm-
+  /// datei (z. B. AppImage verschoben oder umbenannt, App neu installiert),
+  /// wird er auf die aktuelle umgestellt – sonst stünde der Schalter auf
+  /// „an“, gestartet würde aber nichts. Beim Programmstart aufrufen.
+  Future<void> refresh() async {
+    try {
+      if (Platform.isLinux) {
+        final file = _linuxFile;
+        if (file.existsSync() && file.readAsStringSync() != _desktopEntry()) {
+          await file.writeAsString(_desktopEntry());
+        }
+      } else if (Platform.isWindows) {
+        final key = CURRENT_USER.create(_runKey);
+        try {
+          final v = key.getString(_runValue);
+          if (v != null && v != _windowsCommand) {
+            key.setValue(_runValue, RegistryValue.string(_windowsCommand));
+          }
+        } finally {
+          key.close();
+        }
+      }
+    } on Exception catch (e) {
+      debugPrint('Autostart: $e');
+    }
+  }
+
+  String get _windowsCommand => '"${Platform.resolvedExecutable}" $flag';
+
   /// Wirft eine Exception, wenn das System die Änderung ablehnt.
   Future<void> setEnabled(bool enabled) async {
     if (Platform.isLinux) {
@@ -72,8 +101,7 @@ class Autostart {
       final key = CURRENT_USER.create(_runKey);
       try {
         if (enabled) {
-          key.setValue(_runValue,
-              RegistryValue.string('"${Platform.resolvedExecutable}" $flag'));
+          key.setValue(_runValue, RegistryValue.string(_windowsCommand));
         } else if (key.getString(_runValue) != null) {
           key.removeValue(_runValue);
         }
@@ -109,17 +137,19 @@ class Autostart {
 Type=Application
 Name=AnTaTime
 Comment=Arbeitszeiterfassung beim Anmelden starten
-Exec=${_quoteExec(_linuxExecutable)} $flag
+Exec=${quoteExec(_linuxExecutable)} $flag
 Icon=$_appId
 Terminal=false
 X-GNOME-Autostart-enabled=true
 ''';
 
   /// Quoting nach der Desktop-Entry-Spezifikation (Exec-Schlüssel).
-  static String _quoteExec(String path) {
+  @visibleForTesting
+  static String quoteExec(String path) {
     final escaped = path.replaceAllMapped(
         RegExp(r'[\\"`$]'), (m) => '\\${m[0]}');
-    // Backslashes werden in Desktop-Dateien zusätzlich als String maskiert.
-    return '"${escaped.replaceAll(r'\', r'\\')}"';
+    // Backslashes werden in Desktop-Dateien zusätzlich als String maskiert;
+    // `%` leitet Feldcodes ein (%f, %u …) und muss als `%%` stehen.
+    return '"${escaped.replaceAll(r'\', r'\\').replaceAll('%', '%%')}"';
   }
 }

@@ -19,6 +19,8 @@ import 'tray_service.dart';
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   final autostarted = await Autostart.instance.launchedAtStartup(args);
+  // Autostart auf diese Programmdatei umstellen, falls sie verschoben wurde.
+  await Autostart.instance.refresh();
   await initializeDateFormatting('de_DE');
   final repo = Repository();
   final data = await repo.load();
