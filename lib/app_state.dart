@@ -61,6 +61,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -250,16 +251,28 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Beim Programmstart: Zeiterfassung beginnen, falls so eingestellt
   /// (siehe [shouldAutoTrack]). Gibt `true` zurück, wenn sie gestartet wurde.
-  Future<bool> autoStartTracking() async {
+  ///
+  /// Wartet vorher bis zu [syncWait] auf den Sync: Läuft die Zeiterfassung
+  /// schon auf einem anderen Gerät, wird sie nicht ein zweites Mal gestartet.
+  /// (Ohne Netz startet sie danach trotzdem; der Sync löst das später auf.)
+  Future<bool> autoStartTracking({
+    Duration syncWait = const Duration(seconds: 10),
+  }) async {
     final mode = await _repo.loadAutoTrack();
     if (mode == AutoTrack.off) return false;
+    await sync.waitUntilSynced(syncWait);
     final until = await _repo.loadAutoTrackUntil();
     final started = await _repo.exclusive(() async {
       data = await _repo.load();
       now = DateTime.now();
       stoppedToday = await _repo.stoppedOn(now);
-      if (!shouldAutoTrack(mode, data, now,
-          stoppedToday: stoppedToday, untilMinutes: until)) {
+      if (!shouldAutoTrack(
+        mode,
+        data,
+        now,
+        stoppedToday: stoppedToday,
+        untilMinutes: until,
+      )) {
         return false;
       }
       Repository.toggle(data, now);

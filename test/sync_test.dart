@@ -9,6 +9,7 @@ import 'package:antatime/sync/sync_records.dart';
 import 'package:antatime/sync/sync_service.dart';
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 AppData sample() => AppData(
       sessions: [
@@ -29,6 +30,7 @@ AppData sample() => AppData(
     );
 
 void main() {
+  setUpAll(() => initializeDateFormatting('de_DE'));
   group('Code und Verschlüsselung', () {
     test('Codes sind gültig, zufällig und tolerant lesbar', () {
       final code = SyncCrypto.generateCode();
@@ -102,8 +104,12 @@ void main() {
       final ack = decodeServerMessage(Uint8List.fromList([0x83, 7, 9]));
       expect((ack as AckMessage).reqId, 7);
       expect(ack.firstSeq, 9);
-      expect(decodeServerMessage(Uint8List.fromList([0x82, 3])),
-          isA<SyncedMessage>());
+      final synced = decodeServerMessage(Uint8List.fromList([0x82, 3]));
+      expect((synced as SyncedMessage).headSeq, 3);
+      expect(synced.serverTime, isNull, reason: 'älterer Server');
+      final timed =
+          decodeServerMessage(Uint8List.fromList([0x82, 3, 0x80, 0x01]));
+      expect((timed as SyncedMessage).serverTime, 128);
       expect(decodeServerMessage(Uint8List.fromList([0x85])),
           isA<VaultDeletedMessage>());
       expect(() => decodeServerMessage(Uint8List.fromList([0x81, 1])),
@@ -122,6 +128,123 @@ void main() {
   });
 
   group('Datensätze und Zusammenführen', () {
+    test('Doppelt gestartet: die zuerst gestartete Zeit gewinnt', () {
+      AppData make(List<WorkSession> s) =>
+          AppData(sessions: s, absences: [], settings: Settings());
+      DateTime t(int h, [int m = 0]) => DateTime(2026, 11, 23, h, m);
+      List<String> ids(AppData d) => d.sessions.map((s) => s.id).toList();
+      final done = WorkSession(id: 'done', start: t(6), end: t(7));
+
+      // Beide laufen noch.
+      final phone = WorkSession(id: 'z', start: t(8));
+      final pc = WorkSession(id: 'a', start: t(9), note: 'PC');
+      final d = make([done.copy(), pc.copy(), phone.copy()]);
+      expect(d.resolveOverlaps(), isTrue);
+      expect(ids(d), ['done', 'z']);
+      expect(d.sessions.last.note, 'PC', reason: 'Notiz bleibt erhalten');
+      expect(d.resolveOverlaps(), isFalse);
+
+      // Handy hat inzwischen pausiert, weitergemacht und Feierabend gemacht:
+      // Pause und Ende bleiben, die PC-Zeit fällt weg.
+      final paused = make([
+        WorkSession(id: 'p1', start: t(8), end: t(10)),
+        WorkSession(id: 'p2', start: t(10, 30), end: t(12)),
+        pc.copy(),
+      ]);
+      expect(paused.resolveOverlaps(), isTrue);
+      expect(ids(paused), ['p1', 'p2']);
+      expect(paused.running, isNull);
+
+      // Beendete Zeiten werden gekürzt statt entfernt: Ihr Ende zählt, die
+      // Pause des anderen Geräts bleibt.
+      final pcDone = make([
+        WorkSession(id: 'p1', start: t(8), end: t(10)),
+        WorkSession(id: 'p2', start: t(10, 30), end: t(12)),
+        WorkSession(id: 'pc', start: t(9), end: t(13)),
+      ]);
+      expect(pcDone.resolveOverlaps(), isTrue);
+      expect(ids(pcDone), ['p1', 'p2', 'pc']);
+      expect(pcDone.sessions.last.start, t(12));
+      expect(pcDone.sessions.last.end, t(13));
+      expect(pcDone.resolveOverlaps(), isFalse);
+
+      // Beitritt mit eigener Erfassung: keine Zeit geht verloren.
+      final joined = make([
+        WorkSession(id: 'h', start: t(8), end: t(9)),
+        WorkSession(id: 'pc', start: t(8, 30), end: t(17)),
+      ]);
+      expect(joined.resolveOverlaps(), isTrue);
+      expect(joined.sessions.map((s) => (s.start, s.end)),
+          [(t(8), t(9)), (t(9), t(17))]);
+
+      // Vollständig überdeckt: entfällt.
+      final covered = make([
+        WorkSession(id: 'h', start: t(8), end: t(12)),
+        WorkSession(id: 'pc', start: t(9), end: t(11)),
+      ]);
+      expect(covered.resolveOverlaps(), isTrue);
+      expect(ids(covered), ['h']);
+
+      // Beendet, aber das andere Gerät erfasst noch: entfällt.
+      final stillRunning = make([
+        WorkSession(id: 'h', start: t(8)),
+        WorkSession(id: 'pc', start: t(9), end: t(11)),
+      ]);
+      expect(stillRunning.resolveOverlaps(), isTrue);
+      expect(ids(stillRunning), ['h']);
+
+      // Erst nach dem Feierabend gestartet: kein Konflikt.
+      final later = make([
+        WorkSession(id: 'p1', start: t(8), end: t(12)),
+        WorkSession(id: 'pc', start: t(13)),
+      ]);
+      expect(later.resolveOverlaps(), isFalse);
+
+      // In der Pause gestartet: Die PC-Zeit begann zuerst, der spätere
+      // Start am Handy ist der doppelte.
+      final inPause = make([
+        WorkSession(id: 'p1', start: t(8), end: t(10)),
+        WorkSession(id: 'p2', start: t(10, 30), end: t(12)),
+        WorkSession(id: 'pc', start: t(10, 15)),
+      ]);
+      expect(inPause.resolveOverlaps(), isTrue);
+      expect(ids(inPause), ['p1', 'pc']);
+
+      // Gleicher Start: auf allen Geräten dasselbe Ergebnis.
+      final same = WorkSession(id: 'b', start: t(8));
+      for (final order in [
+        [phone, same],
+        [same, phone],
+      ]) {
+        final x = make([for (final s in order) s.copy()]);
+        x.resolveOverlaps();
+        expect(x.sessions.single.id, 'b');
+      }
+
+      // Altlast des ursprünglichen Fehlers: zwei parallel erfasste, beendete
+      // Zeiten. Die spätere ist vollständig überdeckt und entfällt; ihre
+      // Notiz bleibt erhalten.
+      final old = make([
+        WorkSession(id: 'o1', start: t(8), end: t(17)),
+        WorkSession(id: 'o2', start: t(9), end: t(17), note: 'PC'),
+      ]);
+      expect(old.resolveOverlaps(), isTrue);
+      expect(ids(old), ['o1']);
+      expect(old.sessions.single.note, 'PC');
+
+      // Viele Arbeitszeiten ohne Überschneidung: nichts zu tun.
+      final many = make([
+        for (var i = 0; i < 5000; i++)
+          WorkSession(
+              id: 'm$i',
+              start: DateTime(2020).add(Duration(hours: 3 * i)),
+              end: DateTime(2020).add(Duration(hours: 3 * i + 2))),
+      ]);
+      final sw = Stopwatch()..start();
+      expect(many.resolveOverlaps(), isFalse);
+      expect(sw.elapsedMilliseconds, lessThan(200));
+    });
+
     test('Alle Daten werden zu Datensätzen und zurück', () {
       final src = sample();
       final records = recordsOf(src);
@@ -284,6 +407,68 @@ void main() {
       expect(sync.displayStatus, SyncStatus.connecting);
       await sync.disable();
       expect(sync.displayStatus, SyncStatus.off);
+      sync.dispose();
+    });
+
+    test('Warten auf den Sync', () async {
+      // Sync aus: sofort.
+      final off = SyncService(_MemoryStore(),
+          networkChanges: () => const Stream.empty());
+      final sw = Stopwatch()..start();
+      await off.waitUntilSynced(const Duration(seconds: 5));
+      expect(sw.elapsedMilliseconds, lessThan(100));
+      off.dispose();
+
+      // Server nicht erreichbar: höchstens bis zur Wartezeit.
+      final sync = SyncService(_MemoryStore(),
+          networkChanges: () => const Stream.empty());
+      await sync.enable(
+          url: 'http://127.0.0.1:1', code: SyncCrypto.generateCode(), join: false);
+      sw.reset();
+      await sync.waitUntilSynced(const Duration(milliseconds: 300));
+      expect(sw.elapsedMilliseconds, inInclusiveRange(250, 1000));
+
+      // Sync wird währenddessen beendet: sofort weiter.
+      final waiting = sync.waitUntilSynced(const Duration(seconds: 5));
+      sw.reset();
+      await sync.disable();
+      await waiting;
+      expect(sw.elapsedMilliseconds, lessThan(1000));
+      sync.dispose();
+    });
+
+    test('Hinweis, wenn beim Beitreten die laufende Zeit verworfen wird', () {
+      final now = DateTime(2026, 11, 23, 14);
+      expect(
+          SyncService.joinRunningDroppedNotice(DateTime(2026, 11, 23, 8, 30), now),
+          allOf(contains('seit 08:30 Uhr'), contains('von heute')));
+      expect(
+          SyncService.joinRunningDroppedNotice(DateTime(2026, 11, 22, 8, 30), now),
+          allOf(contains('seit 22.11.2026, 08:30 Uhr'),
+              contains('vom 22.11.2026')));
+
+      // resolveOverlaps meldet die entfernte Zeit.
+      final d = AppData(sessions: [
+        WorkSession(id: 'h', start: DateTime(2026, 11, 23, 8),
+            end: DateTime(2026, 11, 23, 9)),
+        WorkSession(id: 'pc', start: DateTime(2026, 11, 23, 8, 30)),
+      ], absences: [], settings: Settings());
+      final dropped = <WorkSession>[];
+      d.resolveOverlaps(onDropped: dropped.add);
+      expect(dropped.single.id, 'pc');
+      expect(dropped.single.isRunning, isTrue);
+    });
+
+    test('Warnung bei falsch gehender Geräteuhr', () {
+      final sync = SyncService(_MemoryStore(),
+          networkChanges: () => const Stream.empty());
+      expect(sync.clockWarning, isNull);
+      sync.clockOffset = const Duration(seconds: 30);
+      expect(sync.clockWarning, isNull);
+      sync.clockOffset = const Duration(minutes: -15);
+      expect(sync.clockWarning, contains('15 Minuten nach'));
+      sync.clockOffset = const Duration(minutes: 5);
+      expect(sync.clockWarning, contains('5 Minuten vor'));
       sync.dispose();
     });
 

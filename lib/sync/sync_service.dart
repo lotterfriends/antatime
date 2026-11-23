@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
+import '../format.dart';
 import '../models.dart';
 import 'hosting_server.dart';
 import 'network_events.dart';
@@ -111,6 +112,42 @@ class SyncService extends ChangeNotifier {
 
   bool get enabled => code != null;
 
+  /// Hinweis, wenn beim Beitreten die auf diesem Gerät laufende
+  /// Zeiterfassung (seit [start]) verworfen wurde, weil auf einem anderen
+  /// Gerät zu dieser Zeit bereits erfasst wurde. Die App kann das nicht von
+  /// einem doppelten Start unterscheiden, also muss der Nutzer prüfen.
+  static String joinRunningDroppedNotice(DateTime start, DateTime now) {
+    final since = dayOf(start) == dayOf(now)
+        ? formatTime(start)
+        : '${formatDateShort(start)}, ${formatTime(start)}';
+    final day = dayOf(start) == dayOf(now)
+        ? 'von heute'
+        : 'vom ${formatDateShort(start)}';
+    return 'Auf diesem Gerät lief beim Beitreten eine Zeiterfassung seit '
+        '$since Uhr. Sie wurde verworfen, weil auf einem anderen Gerät zu '
+        'dieser Zeit bereits erfasst wurde. Bitte die Arbeitszeiten $day '
+        'prüfen und fehlende Zeit nachtragen.';
+  }
+
+  /// Wie weit die Uhr dieses Geräts von der des Servers abweicht (positiv =
+  /// geht vor); `null` = unbekannt. Beim Verbinden ermittelt.
+  Duration? clockOffset;
+
+  /// Ab dieser Abweichung wird gewarnt: Welche Zeiterfassung zuerst
+  /// gestartet wurde, entscheiden die Uhren der Geräte.
+  static const clockTolerance = Duration(minutes: 2);
+
+  /// Hinweis, wenn die Uhr dieses Geräts deutlich falsch geht.
+  String? get clockWarning {
+    final o = clockOffset;
+    if (o == null || o.abs() < clockTolerance) return null;
+    final min = o.inMinutes.abs();
+    return 'Die Uhr dieses Geräts geht etwa $min Minuten '
+        '${o.isNegative ? 'nach' : 'vor'}. Bitte die Uhrzeit automatisch '
+        'stellen lassen – sonst stimmen die erfassten Zeiten nicht und beim '
+        'Abgleich kann die falsche Zeiterfassung als zuerst gestartet gelten.';
+  }
+
   /// Status für die Anzeige: Kurze Unterbrechungen, die sich gleich von
   /// selbst beheben, erscheinen als „Verbinde …“ statt als „Offline“.
   SyncStatus get displayStatus {
@@ -128,6 +165,10 @@ class SyncService extends ChangeNotifier {
   StreamSubscription<dynamic>? _sub;
   int _generation = 0;
   bool _live = false;
+
+  /// Beim Beitreten: die Arbeitszeit, die auf diesem Gerät gerade läuft –
+  /// bis zum ersten vollständigen Abgleich (siehe [_onSynced]).
+  String? _joinRunning;
   int _attempt = 0;
   Timer? _retryTimer;
   Timer? _pingTimer;
@@ -165,6 +206,26 @@ class SyncService extends ChangeNotifier {
     await _activate(st);
   }
 
+  /// Wartet höchstens [timeout], bis der Stand des Servers übernommen ist
+  /// (sofort zurück, wenn der Sync aus ist). Z. B. vor dem automatischen
+  /// Start der Zeiterfassung, damit eine auf einem anderen Gerät bereits
+  /// laufende Zeit erkannt wird.
+  Future<void> waitUntilSynced(Duration timeout) async {
+    bool ready() => !enabled || status == SyncStatus.online;
+    if (ready()) return;
+    final done = Completer<void>();
+    void check() {
+      if (ready() && !done.isCompleted) done.complete();
+    }
+
+    addListener(check);
+    try {
+      await done.future.timeout(timeout, onTimeout: () {});
+    } finally {
+      removeListener(check);
+    }
+  }
+
   /// Sync einschalten. `join == false`: neuer Code, alle lokalen Daten werden
   /// hochgeladen. `join == true`: bestehender Code, die Daten werden
   /// zusammengeführt (bei Konflikten gewinnt der Server-Stand).
@@ -177,6 +238,7 @@ class SyncService extends ChangeNotifier {
       final current = recordsOf(data);
       if (join) {
         st.seedForJoin(current);
+        _joinRunning = data.running?.id;
       } else {
         st.diffLocal(current);
       }
@@ -374,6 +436,7 @@ class SyncService extends ChangeNotifier {
   }
 
   void _reset() {
+    _joinRunning = null;
     url = null;
     code = null;
     _crypto = null;
@@ -616,7 +679,11 @@ class SyncService extends ChangeNotifier {
     switch (m) {
       case ChangesMessage(:final records):
         _enqueue(() => _applyRemote(gen, records));
-      case SyncedMessage(:final headSeq):
+      case SyncedMessage(:final headSeq, :final serverTime):
+        if (serverTime != null) {
+          clockOffset = Duration(
+              milliseconds: DateTime.now().millisecondsSinceEpoch - serverTime);
+        }
         _enqueue(() => _onSynced(gen, headSeq));
       case AckMessage(:final reqId, :final firstSeq):
         _enqueue(() => _onAck(gen, reqId, firstSeq));
@@ -665,6 +732,15 @@ class SyncService extends ChangeNotifier {
         }
         st.seq = max(st.seq, seq);
       }
+      // Beim Nachholen kommen die Änderungen in mehreren Teilen. Erst wenn
+      // alles da ist (live), ist der Stand vollständig genug, um
+      // Überschneidungen aufzulösen – sonst fehlt z. B. noch das Ende einer
+      // Arbeitszeit aus einem späteren Teil. Nach dem Nachholen: _onSynced.
+      if (_live &&
+          decoded.any((d) => d.$2.startsWith('s:')) &&
+          _resolveOverlaps(data, st)) {
+        changed = true;
+      }
       if (changed) await _store.saveAll(data);
       await _saveState(st);
       // Auch ohne eigene Änderung melden: Die frisch geladenen Daten können
@@ -692,6 +768,26 @@ class SyncService extends ChangeNotifier {
       return;
     }
     _live = true;
+    // Nachholen abgeschlossen: Überschneidungen jetzt auflösen – auch ältere,
+    // die vor dieser App-Version entstanden sind.
+    await _store.exclusive(() async {
+      final data = await _store.load();
+      final st = await _loadState();
+      if (st == null) return;
+      st.diffLocal(recordsOf(data));
+      final joinRunning = _joinRunning;
+      _joinRunning = null;
+      WorkSession? lost;
+      if (_resolveOverlaps(data, st,
+          onDropped: (s) => lost ??= s.id == joinRunning ? s : null)) {
+        await _store.saveAll(data);
+        onRemoteData?.call(data);
+      }
+      await _saveState(st);
+      if (lost != null) {
+        notice = joinRunningDroppedNotice(lost!.start, DateTime.now());
+      }
+    });
     error = null;
     status = SyncStatus.online;
     _onlineLostAt = null;
@@ -702,6 +798,16 @@ class SyncService extends ChangeNotifier {
     _stableTimer = Timer(_stableAfter, () => _attempt = 0);
     _notify();
     _schedulePush();
+  }
+
+  /// Überschneiden sich Arbeitszeiten (auf zwei Geräten gestartet), gewinnt
+  /// die zuerst gestartete (siehe [AppData.resolveOverlaps]). Die Änderungen
+  /// gehen an alle Geräte; die kommen unabhängig davon zum selben Ergebnis.
+  bool _resolveOverlaps(AppData data, SyncState st,
+      {void Function(WorkSession dropped)? onDropped}) {
+    final changed = data.resolveOverlaps(onDropped: onDropped);
+    if (changed) st.diffLocal(recordsOf(data));
+    return changed;
   }
 
   void _schedulePush() {

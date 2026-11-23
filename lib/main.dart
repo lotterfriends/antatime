@@ -25,7 +25,8 @@ Future<void> main(List<String> args) async {
   await NotificationService.instance.init();
   await NotificationService.instance.update(data);
   await TrayService.ensureInitialized();
-  final state = AppState(repo, data)..sync.start();
+  final state = AppState(repo, data);
+  final syncStarted = state.sync.start();
   await state.loadDeviceSettings();
   // Desktop: Steuerung über den Infobereich (Tray)
   await TrayService.instance.attach(state);
@@ -39,6 +40,8 @@ Future<void> main(List<String> args) async {
   await DesktopNotifications.instance.watchTarget(state);
   // Desktop: Zeiterfassung beim Programmstart beginnen, falls eingestellt –
   // vor der Startfrage, die dann entfällt.
+  // Wartet dafür kurz auf den Sync (siehe autoStartTracking).
+  await syncStarted;
   if (Autostart.instance.supported) await state.autoStartTracking();
   if (autostarted) await _afterAutostart(state);
 }

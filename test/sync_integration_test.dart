@@ -12,6 +12,7 @@ import 'package:antatime/repository.dart';
 import 'package:antatime/sync/sync_crypto.dart';
 import 'package:antatime/sync/sync_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/date_symbol_data_local.dart';
 
 /// Speicher eines Geräts. Im Browser teilen sich alle Tabs diesen Speicher
 /// (localStorage) und die Sperre (Web Locks).
@@ -99,6 +100,7 @@ Future<void> waitFor(bool Function() cond, {String? reason}) async {
 }
 
 void main() {
+  setUpAll(() => initializeDateFormatting('de_DE'));
   final url = Platform.environment['SYNC_TEST_URL'];
 
   test('Zwei Geräte gleichen sich sofort ab', () async {
@@ -112,6 +114,9 @@ void main() {
 
     await a.sync.enable(url: url!, code: code, join: false);
     await waitFor(() => a.sync.status == SyncStatus.online, reason: 'A online');
+    // Der Server meldet seine Uhrzeit: gleiche Maschine, keine Abweichung.
+    expect(a.sync.clockOffset!.abs(), lessThan(const Duration(seconds: 2)));
+    expect(a.sync.clockWarning, isNull);
 
     // B hat eigene Daten und tritt bei: Einstellungen kommen von A,
     // die eigene Arbeitszeit bleibt erhalten und geht an A.
@@ -161,6 +166,157 @@ void main() {
     }
   }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
 
+  test('Auf zwei Geräten gestartet: die zuerst gestartete Zeit gewinnt',
+      () async {
+    final code = SyncCrypto.generateCode();
+    final phone = FakeDevice('Handy');
+    final pc = FakeDevice('PC');
+    await phone.sync.enable(url: url!, code: code, join: false);
+    await pc.sync.enable(url: url, code: code, join: true);
+    await waitFor(
+        () => phone.sync.status == SyncStatus.online &&
+            pc.sync.status == SyncStatus.online,
+        reason: 'beide online');
+
+    // PC offline: Er kennt die laufende Zeit vom Handy noch nicht und
+    // startet selbst (z. B. Autostart beim Hochfahren).
+    pc.sync.dispose();
+    final pcAgain = FakeDevice('PC', pc.storage);
+    await phone.edit((d) => d.sessions.add(WorkSession(
+        id: 'handy', start: DateTime.now().subtract(const Duration(hours: 1)))));
+    await pcAgain.edit((d) => d.sessions.add(
+        WorkSession(id: 'pc', start: DateTime.now())));
+
+    // PC kommt online (mit der Änderung): Beide sehen nur noch die frühere
+    // Zeit.
+    bool onlyPhone(AppData d) =>
+        d.sessions.length == 1 && d.running?.id == 'handy';
+    await waitFor(() => onlyPhone(pcAgain.data), reason: 'PC behält Handy-Zeit');
+    await waitFor(() => onlyPhone(phone.data), reason: 'Handy löscht PC-Zeit');
+    expect(pcAgain.shown?.running?.id, 'handy');
+
+    phone.sync.dispose();
+    pcAgain.sync.dispose();
+  }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
+  test('Doppelter Start: Pause und Feierabend des anderen Geräts bleiben',
+      () async {
+    final code = SyncCrypto.generateCode();
+    final phone = FakeDevice('Handy');
+    final pc = FakeDevice('PC');
+    final day = DateTime.now().subtract(const Duration(hours: 6));
+    DateTime t(int minutes) => day.add(Duration(minutes: minutes));
+
+    // Handy: gestartet, Pause, weiter, Feierabend – PC weiß nichts davon
+    // und hat eine Stunde nach dem Handy selbst gestartet.
+    await phone.edit((d) => d.sessions.addAll([
+          WorkSession(id: 'h1', start: t(0), end: t(120)),
+          WorkSession(id: 'h2', start: t(150), end: t(240)),
+        ]));
+    await pc.edit((d) => d.sessions.add(WorkSession(id: 'pc', start: t(60))));
+
+    await phone.sync.enable(url: url!, code: code, join: false);
+    await waitFor(() => phone.sync.status == SyncStatus.online,
+        reason: 'Handy online');
+    await pc.sync.enable(url: url, code: code, join: true);
+
+    bool phoneWins(AppData d) =>
+        d.sessions.map((s) => s.id).join(',') == 'h1,h2' && d.running == null;
+    await waitFor(() => phoneWins(pc.data), reason: 'PC übernimmt Handy-Stand');
+    await waitFor(() => phoneWins(phone.data), reason: 'Handy bleibt');
+
+    phone.sync.dispose();
+    pc.sync.dispose();
+  }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
+  test('Nachholen in mehreren Teilen löscht keine laufende Zeit', () async {
+    final code = SyncCrypto.generateCode();
+    final phone = FakeDevice('Handy');
+    final pc = FakeDevice('PC');
+    final day = DateTime.now().subtract(const Duration(hours: 3));
+    await phone.sync.enable(url: url!, code: code, join: false);
+    await pc.sync.enable(url: url, code: code, join: true);
+    await waitFor(
+        () => phone.sync.status == SyncStatus.online &&
+            pc.sync.status == SyncStatus.online,
+        reason: 'beide online');
+
+    // Beide kennen die laufende Zeit x; dann ist der PC offline.
+    await phone.edit((d) => d.sessions.add(WorkSession(id: 'x', start: day)));
+    await waitFor(() => pc.data.running?.id == 'x', reason: 'PC kennt x');
+    pc.sync.dispose();
+
+    // Handy: Pause, weiter (y), danach viele andere Änderungen und zuletzt
+    // eine Notiz an x – x kommt beim Nachholen damit erst nach y.
+    await phone.edit((d) {
+      d.running!.end = day.add(const Duration(hours: 1));
+      d.sessions.add(WorkSession(id: 'y', start: day.add(const Duration(hours: 2))));
+    });
+    // y erst auf dem Server, dann der Rest – sonst landet alles in einem Teil.
+    final observer = FakeDevice('Beobachter');
+    await observer.sync.enable(url: url, code: code, join: true);
+    await waitFor(() => observer.data.running?.id == 'y', reason: 'y gesendet');
+    await phone.edit((d) {
+      for (var i = 0; i < 600; i++) {
+        final s = DateTime(2025, 1, 1).add(Duration(hours: 2 * i));
+        d.sessions.add(WorkSession(
+            id: 'old$i', start: s, end: s.add(const Duration(hours: 1))));
+      }
+    });
+    await waitFor(() => observer.data.sessions.length == 602,
+        reason: 'alte Zeiten gesendet');
+    await phone.edit((d) =>
+        d.sessions.firstWhere((s) => s.id == 'x').note = 'später ergänzt');
+    await waitFor(
+        () =>
+            observer.data.sessions.length == 602 &&
+            observer.data.sessions.any((s) => s.note == 'später ergänzt'),
+        reason: 'alles gesendet');
+    observer.sync.dispose();
+
+    // PC holt nach: y bleibt überall erhalten.
+    final pcAgain = FakeDevice('PC', pc.storage);
+    pcAgain.sync.localChanged();
+    await waitFor(() => pcAgain.data.sessions.length == 602,
+        reason: 'PC vollständig');
+    await waitFor(() => pcAgain.sync.status == SyncStatus.online,
+        reason: 'PC online');
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    for (final d in [pcAgain, phone]) {
+      expect(d.data.running?.id, 'y', reason: d.name);
+      expect(d.data.sessions.length, 602, reason: d.name);
+    }
+
+    phone.sync.dispose();
+    pcAgain.sync.dispose();
+  }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
+  test('Beitreten mit laufender Zeit: Hinweis, wenn sie verworfen wird',
+      () async {
+    final code = SyncCrypto.generateCode();
+    final phone = FakeDevice('Handy');
+    final pc = FakeDevice('PC');
+    final start = DateTime.now().subtract(const Duration(hours: 3));
+    await phone.edit((d) => d.sessions.add(WorkSession(
+        id: 'h', start: start, end: start.add(const Duration(hours: 1)))));
+    await pc.edit((d) => d.sessions.add(WorkSession(
+        id: 'pc', start: start.add(const Duration(minutes: 30)))));
+    // Unbeteiligt: das Handy bekommt keinen Hinweis.
+    await phone.sync.enable(url: url!, code: code, join: false);
+    await waitFor(() => phone.sync.status == SyncStatus.online,
+        reason: 'Handy online');
+
+    await pc.sync.enable(url: url, code: code, join: true);
+    await waitFor(() => pc.sync.notice != null, reason: 'Hinweis am PC');
+    expect(pc.sync.notice, contains('Zeiterfassung seit'));
+    expect(pc.data.running, isNull);
+    await waitFor(() => phone.data.sessions.length == 1, reason: 'Handy');
+    expect(phone.sync.notice, isNull);
+
+    phone.sync.dispose();
+    pc.sync.dispose();
+  }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
   test('Viele gleichzeitig offene Geräte bleiben synchron', () async {
     final code = SyncCrypto.generateCode();
     // Mehr als das frühere Limit von 20 Verbindungen pro Code.
@@ -174,8 +330,9 @@ void main() {
 
     // Jedes Gerät ändert etwas; alle sehen alle Änderungen.
     for (final (i, d) in devices.indexed) {
+      final start = DateTime(2026, 11, 1, 8).add(Duration(hours: i));
       await d.edit((x) => x.sessions.add(WorkSession(
-          id: 'g$i', start: DateTime(2026, 11, 1, 8).add(Duration(hours: i)))));
+          id: 'g$i', start: start, end: start.add(const Duration(minutes: 30)))));
     }
     await waitFor(
         () => devices.every((d) => d.data.sessions.length == devices.length),

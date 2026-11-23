@@ -48,6 +48,12 @@ class SyncTiles extends StatelessWidget {
                     sync.error!,
                 ].join(' · ')),
               ),
+              if (sync.clockWarning != null)
+                ListTile(
+                  leading: const Icon(Icons.schedule),
+                  title: const Text('Geräteuhr geht falsch'),
+                  subtitle: Text(sync.clockWarning!),
+                ),
               ListTile(
                 leading: const Icon(Icons.key_outlined),
                 title: const Text('Sync-Code anzeigen'),

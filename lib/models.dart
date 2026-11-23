@@ -248,4 +248,86 @@ class AppData {
     }
     return null;
   }
+
+  /// Es wird immer nur eine Zeit gleichzeitig erfasst. Wurde die
+  /// Zeiterfassung auf zwei Geräten gestartet, bevor der Sync den Stand des
+  /// anderen kannte, gewinnt die zuerst gestartete. Für eine Arbeitszeit, die
+  /// beginnt, während eine früher gestartete noch läuft bzw. lief, gilt:
+  ///
+  ///  * Läuft sie noch, ist sie ein doppelter Start und wird entfernt. Was
+  ///    das andere Gerät inzwischen gemacht hat – Pause, erneuter Start,
+  ///    Feierabend – bleibt so erhalten. Ihre Notiz wandert in die gewinnende.
+  ///  * Ist sie beendet, zählt ihr Ende: Sie beginnt erst nach den
+  ///    Arbeitszeiten, mit denen sie sich überschneidet. Reicht sie nicht
+  ///    darüber hinaus, wird sie entfernt. So geht keine erfasste Zeit
+  ///    verloren, z. B. wenn ein Gerät mit eigener Erfassung dem Sync beitritt.
+  ///
+  /// Bei gleichem Start entscheidet die ID, damit alle Geräte dasselbe
+  /// Ergebnis erhalten. [onDropped] erfährt jede entfernte Arbeitszeit (im
+  /// Zustand vor dem Entfernen). Gibt `true` zurück, wenn etwas geändert
+  /// wurde.
+  bool resolveOverlaps({void Function(WorkSession dropped)? onDropped}) {
+    bool overlaps(WorkSession a, DateTime start, DateTime? end) =>
+        (a.end == null || start.isBefore(a.end!)) &&
+        (end == null || a.start.isBefore(end));
+
+    // 1. Nach Start: Wer beginnt, während eine behaltene Arbeitszeit läuft
+    //    bzw. lief, ist ein doppelter Start und wird zurückgestellt.
+    final ordered = [...sessions]..sort((a, b) {
+        final c = a.start.compareTo(b.start);
+        return c != 0 ? c : a.id.compareTo(b.id);
+      });
+    final kept = <WorkSession>[];
+    final duplicates = <(WorkSession, WorkSession)>[];
+    for (final s in ordered) {
+      // Die behaltenen überschneiden sich nicht und sind nach Start sortiert:
+      // Nur die letzte kann noch laufen bzw. über s.start hinausreichen.
+      final last = kept.lastOrNull;
+      final winner =
+          last != null && overlaps(last, s.start, null) ? last : null;
+      if (winner == null) {
+        kept.add(s);
+      } else {
+        duplicates.add((s, winner));
+      }
+    }
+    if (duplicates.isEmpty) return false;
+
+    // 2. Doppelte Starts weichen allen anderen Arbeitszeiten: Laufende
+    //    entfallen; beendete beginnen erst nach dem Ende der letzten, mit der
+    //    sie sich überschneiden (so bleiben deren Pausen erhalten).
+    final dropped = <WorkSession>{};
+    for (final (s, winner) in duplicates) {
+      final others = kept
+          .where((k) => overlaps(k, s.start, s.end))
+          .toList();
+      DateTime? newStart;
+      if (s.end != null && others.every((k) => k.end != null)) {
+        newStart = others
+            .map((k) => k.end!)
+            .fold<DateTime>(s.start, (a, b) => b.isAfter(a) ? b : a);
+      }
+      if (newStart != null && newStart.isBefore(s.end!)) {
+        s.start = newStart;
+        kept.add(s);
+        continue;
+      }
+      dropped.add(s);
+      onDropped?.call(s.copy());
+      final note = s.note?.trim();
+      if (note != null &&
+          note.isNotEmpty &&
+          !(winner.note ?? '').contains(note)) {
+        winner.note = [
+          if (winner.note != null && winner.note!.trim().isNotEmpty)
+            winner.note!,
+          note,
+        ].join('\n');
+      }
+    }
+    sessions
+      ..removeWhere(dropped.contains)
+      ..sort((a, b) => a.start.compareTo(b.start));
+    return true;
+  }
 }

@@ -50,8 +50,11 @@ class ChangesMessage extends ServerMessage {
 }
 
 class SyncedMessage extends ServerMessage {
-  const SyncedMessage(this.headSeq);
+  const SyncedMessage(this.headSeq, [this.serverTime]);
   final int headSeq;
+
+  /// Uhrzeit des Servers (ms seit 1970); `null` bei älteren Servern.
+  final int? serverTime;
 }
 
 class AckMessage extends ServerMessage {
@@ -120,7 +123,8 @@ ServerMessage decodeServerMessage(Uint8List buf) {
           })(),
       ]);
     case SyncOp.synced:
-      return SyncedMessage(r.varint());
+      final head = r.varint();
+      return SyncedMessage(head, r.pos < buf.length ? r.varint() : null);
     case SyncOp.ack:
       return AckMessage(r.varint(), r.varint());
     case SyncOp.pong:
