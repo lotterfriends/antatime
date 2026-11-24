@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import 'auto_track.dart';
@@ -17,13 +18,22 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
       : sync = sync ??
             SyncService(_repo, nativeChanges: _repo.takeNativeChanges) {
     WidgetsBinding.instance.addObserver(this);
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    // Vom Hintergrund-Sync ohne Fenster gestartet (Android): kein Takt, bis
+    // die App sichtbar wird (siehe didChangeAppLifecycleState).
+    if (!_pauseTickerInBackground ||
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
+      _startTicker();
+    }
     NotificationService.instance.onToggle = toggle;
     NotificationService.instance.onStart = () => toggle(to: true);
     NotificationService.instance.onPause = () => toggle(to: false);
     NotificationService.instance.onFinish = finishDay;
     NotificationService.instance.onDataChanged = reload;
+    NotificationService.instance.onSyncNow =
+        () => this.sync.syncNow(const Duration(seconds: 30));
     this.sync.onRemoteData = _onRemoteData;
+    // Sync ein-/ausgeschaltet: Hintergrund-Sync entsprechend anpassen.
+    this.sync.addListener(_updateBackgroundSync);
     // Im Browser: Änderungen anderer Tabs sofort übernehmen (und, falls
     // dieser Tab die Sync-Verbindung hält, gleich weitergeben).
     _tabChanges = otherTabChanges().listen((_) {
@@ -40,7 +50,17 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Optionale Synchronisation mit anderen Geräten.
   final SyncService sync;
-  late final Timer _ticker;
+  Timer? _ticker;
+
+  void _startTicker() {
+    _ticker ??= Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+  }
+
+  /// Android: Die App läuft mit Hintergrund-Sync auch ohne sichtbares
+  /// Fenster weiter – dann nicht jede Sekunde aufwachen. Desktop braucht den
+  /// Takt weiterhin (Infobereich), auch bei verstecktem Fenster.
+  static bool get _pauseTickerInBackground =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   DateTime now = DateTime.now();
   int _tickCount = 0;
 
@@ -117,12 +137,18 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      _startTicker();
       // Danach die Erinnerungen neu planen (neuer Tag, Zeitraum verlängern).
       reload().then((_) => _syncNotification());
       sync.resume();
     } else if (state == AppLifecycleState.hidden ||
-        state == AppLifecycleState.paused) {
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
       sync.pause();
+      if (_pauseTickerInBackground) {
+        _ticker?.cancel();
+        _ticker = null;
+      }
     }
   }
 
@@ -333,6 +359,32 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> loadDeviceSettings() async {
     trayIconStyle = await _repo.loadTrayIconStyle();
+    backgroundSync = await _repo.loadBackgroundSync();
+    _deviceSettingsLoaded = true;
+    await _updateBackgroundSync();
+  }
+
+  /// Sync im Hintergrund erlaubt (nur dieses Gerät, Android; Standard: an).
+  /// Wirkt nur bei eingerichtetem Sync.
+  bool backgroundSync = true;
+  bool _deviceSettingsLoaded = false;
+
+  /// Zuletzt an die native Seite gemeldeter Zustand.
+  bool? _backgroundSyncActive;
+
+  Future<void> setBackgroundSync(bool enabled) async {
+    backgroundSync = enabled;
+    await _repo.saveBackgroundSync(enabled);
+    notifyListeners();
+    await _updateBackgroundSync();
+  }
+
+  Future<void> _updateBackgroundSync() async {
+    if (!_deviceSettingsLoaded) return;
+    final active = backgroundSync && sync.enabled;
+    if (active == _backgroundSyncActive) return;
+    _backgroundSyncActive = active;
+    await NotificationService.instance.setBackgroundSync(active);
   }
 
   Future<void> setTrayIconStyle(TrayIconStyle style) async {
@@ -412,7 +464,8 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
 
   @override
   void dispose() {
-    _ticker.cancel();
+    _ticker?.cancel();
+    sync.removeListener(_updateBackgroundSync);
     _tabChanges?.cancel();
     _tabReload?.cancel();
     sync.dispose();

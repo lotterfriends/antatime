@@ -99,6 +99,10 @@ class NotificationService {
   /// hat (Android).
   VoidCallback? onDataChanged;
 
+  /// Die native Seite bittet um einen sofortigen Abgleich mit dem Server
+  /// (regelmäßiger Hintergrund-Sync, Android).
+  Future<void> Function()? onSyncNow;
+
   bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
 
   bool get supported =>
@@ -111,6 +115,7 @@ class NotificationService {
     if (_isAndroid) {
       _native.setMethodCallHandler((call) async {
         if (call.method == 'dataChanged') onDataChanged?.call();
+        if (call.method == 'syncNow') await onSyncNow?.call();
       });
     }
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -156,6 +161,20 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             IOSFlutterLocalNotificationsPlugin>()
         ?.requestPermissions(alert: true, badge: false, sound: true);
+  }
+
+  /// Sync im Hintergrund ein-/ausschalten (Android): [active] = Sync
+  /// eingerichtet und in den Einstellungen erlaubt.
+  Future<void> setBackgroundSync(bool active) async {
+    if (!supported || !_isAndroid) return;
+    await _native.invokeMethod<void>('setBackgroundSync', active);
+  }
+
+  /// Meldet der nativen Seite, dass der Stand des Servers nach dem Start
+  /// übernommen ist (oder das Warten darauf aufgegeben wurde).
+  Future<void> reportSynced() async {
+    if (!supported || !_isAndroid) return;
+    await _native.invokeMethod<void>('synced');
   }
 
   Future<void> cancel() async {

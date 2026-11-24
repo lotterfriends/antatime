@@ -261,6 +261,17 @@ class SyncService extends ChangeNotifier {
     }
   }
 
+  /// Neu verbinden und auf den Stand des Servers warten (höchstens
+  /// [timeout]) – für den regelmäßigen Abgleich im Hintergrund, nach dem die
+  /// bestehende Verbindung oft tot ist, ohne dass es aufgefallen wäre.
+  Future<void> syncNow(Duration timeout) async {
+    if (!enabled) return;
+    // Nach einem Serverfehler (z. B. Speicher voll) gilt dessen Wartezeit.
+    if (_serverErrorCode != null) return;
+    _reconnectNow();
+    await waitUntilSynced(timeout);
+  }
+
   /// Sync einschalten. `join == false`: neuer Code, alle lokalen Daten werden
   /// hochgeladen. `join == true`: bestehender Code, die Daten werden
   /// zusammengeführt (bei Konflikten gewinnt der Server-Stand).

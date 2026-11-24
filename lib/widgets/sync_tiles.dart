@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -60,6 +61,8 @@ class SyncTiles extends StatelessWidget {
                 subtitle: const Text('Zum Einrichten weiterer Geräte'),
                 onTap: () => _showCode(context, sync.code!),
               ),
+              if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+                const _BackgroundSyncTile(),
               ListTile(
                 leading: const Icon(Icons.link_off),
                 title: const Text('Synchronisation beenden'),
@@ -309,6 +312,30 @@ class _SetupDialogState extends State<_SetupDialog> {
             child: const Text('Abbrechen')),
         FilledButton(onPressed: _submit, child: const Text('Verbinden')),
       ],
+    );
+  }
+}
+
+/// Android: Sync im Hintergrund, damit die Benachrichtigung Änderungen
+/// anderer Geräte sofort zeigt (nur dieses Gerät).
+class _BackgroundSyncTile extends StatelessWidget {
+  const _BackgroundSyncTile();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.read<AppState>();
+    return ListenableBuilder(
+      listenable: state,
+      builder: (context, _) => SwitchListTile(
+        secondary: const Icon(Icons.sync_outlined),
+        title: const Text('Im Hintergrund synchronisieren'),
+        subtitle: const Text('Hält die Verbindung, solange die '
+            'Benachrichtigung sichtbar ist, damit Start/Pause auf anderen '
+            'Geräten sofort erscheint; sonst etwa alle 15 Minuten. '
+            'Erhöht den Akkuverbrauch.'),
+        value: state.backgroundSync,
+        onChanged: state.setBackgroundSync,
+      ),
     );
   }
 }

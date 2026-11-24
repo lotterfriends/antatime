@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -44,6 +46,11 @@ Future<void> main(List<String> args) async {
   // vor der Startfrage, die dann entfällt.
   // Wartet dafür kurz auf den Sync (siehe autoStartTracking).
   await syncStarted;
+  // Android: Wurde die App vom Hintergrund-Sync gestartet, wartet dieser
+  // auf den ersten Abgleich (siehe BackgroundSyncWorker.kt).
+  unawaited(state.sync
+      .waitUntilSynced(const Duration(seconds: 30))
+      .then((_) => NotificationService.instance.reportSynced()));
   if (Autostart.instance.supported) await state.autoStartTracking();
   if (autostarted) await _afterAutostart(state);
 }

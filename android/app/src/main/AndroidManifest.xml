@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- Für die optionale Synchronisation über einen AnTaTime-Server -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Sync im Hintergrund: hält die Verbindung, solange die Benachrichtigung
+         sichtbar ist (SyncKeepAliveService, abschaltbar in den Einstellungen) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
     <application
         android:label="AnTaTime"
         android:name="${applicationName}"
@@ -36,6 +40,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- Hält die Sync-Verbindung, solange die Steuer-Benachrichtigung sichtbar ist -->
+        <service
+            android:name=".SyncKeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps the end-to-end encrypted sync connection open while the time tracking notification is shown, so that starting or pausing on another device updates the notification immediately. Can be turned off in the settings."/>
+        </service>
         <!-- Start/Pause/Feierabend aus der Benachrichtigung (Android, nativ) -->
         <receiver android:exported="false" android:name=".NotificationActionReceiver" />
         <!-- Erinnerung zum Start der Zeiterfassung (AlarmManager) -->

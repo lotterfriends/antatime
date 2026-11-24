@@ -1,6 +1,7 @@
 package com.lotterfriends.antatime
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -30,21 +31,49 @@ object TrackingNotification {
     // nicht ändern, daher eine neue ID; der alte Kanal wird entfernt.
     private const val CHANNEL_ID = "tracking_status"
     private const val OLD_CHANNEL_ID = "tracking"
-    private const val NOTIFICATION_ID = 1
+    const val NOTIFICATION_ID = 1
 
+    private fun visible(store: TrackingStore): Boolean =
+        store.showNotification() && !(store.running() == null && store.stoppedToday())
+
+    private fun permitted(context: Context): Boolean =
+        Build.VERSION.SDK_INT < 33 ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Zeigt/aktualisiert die Benachrichtigung passend zum gespeicherten
+     * Zustand. Mit aktivem Hintergrund-Sync ist sie zugleich die
+     * Benachrichtigung von [SyncKeepAliveService], der dann mitläuft.
+     */
     fun refresh(context: Context) {
-        val store = TrackingStore(context)
-        val running = store.running()
-        if (!store.showNotification() || (running == null && store.stoppedToday())) {
+        if (!visible(TrackingStore(context))) {
             cancel(context)
             return
         }
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
+        val notification = build(context)
+        if (notification == null) {
+            // Keine Berechtigung: auch keinen Service mit unsichtbarer Benachrichtigung.
+            SyncKeepAliveService.stop(removeNotification = true)
             return
         }
+        if (BackgroundSync.isActive(context)) {
+            if (!SyncKeepAliveService.isRunning) SyncKeepAliveService.start(context)
+        } else {
+            SyncKeepAliveService.stop(removeNotification = false)
+        }
+        try {
+            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+        } catch (e: SecurityException) {
+            // Berechtigung fehlt – nichts anzeigen.
+        }
+    }
+
+    /** Die Benachrichtigung zum aktuellen Zustand, `null` wenn keine angezeigt werden soll. */
+    fun build(context: Context): Notification? {
+        val store = TrackingStore(context)
+        val running = store.running()
+        if (!visible(store) || !permitted(context)) return null
         ensureChannel(context)
 
         val now = Instant.now()
@@ -98,7 +127,7 @@ object TrackingNotification {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(if (isRunning) R.drawable.ic_stat_running else R.drawable.ic_stat_paused)
             .setColor(ContextCompat.getColor(context, R.color.notification_accent))
             .setSubText(if (isRunning) "Arbeitszeit läuft" else "Pausiert")
@@ -114,15 +143,20 @@ object TrackingNotification {
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
+    }
 
-        try {
-            NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
-        } catch (e: SecurityException) {
-            // Berechtigung fehlt – nichts anzeigen.
-        }
+    /** Nur für den Fall, dass der Service ohne anzuzeigende Benachrichtigung startet. */
+    fun placeholder(context: Context): Notification {
+        ensureChannel(context)
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_paused)
+            .setContentTitle("AnTaTime")
+            .setSilent(true)
+            .build()
     }
 
     fun cancel(context: Context) {
+        SyncKeepAliveService.stop(removeNotification = true)
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
     }
 

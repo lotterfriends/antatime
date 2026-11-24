@@ -54,6 +54,9 @@ class Repository implements SyncStore {
   /// Darstellung des Tray-Symbols (nur dieses Gerät, siehe [TrayIconStyle]).
   static const _kTrayIconStyle = 'trayIconStyle';
 
+  /// Sync im Hintergrund (nur dieses Gerät, Android): `off` = aus, fehlt = an.
+  static const _kBackgroundSync = 'backgroundSync';
+
   /// Sync-Zustand (Code, Server, Snapshot), siehe lib/sync/.
   static const _kSync = 'sync';
 
@@ -249,6 +252,13 @@ class Repository implements SyncStore {
       style == TrayIconStyle.color
           ? _prefs.remove(_kTrayIconStyle)
           : _prefs.setString(_kTrayIconStyle, style.name);
+
+  Future<bool> loadBackgroundSync() async =>
+      await _prefs.getString(_kBackgroundSync) != 'off';
+
+  Future<void> saveBackgroundSync(bool enabled) => enabled
+      ? _prefs.remove(_kBackgroundSync)
+      : _prefs.setString(_kBackgroundSync, 'off');
 
   /// Nach einem Start soll die Benachrichtigung wieder erscheinen.
   Future<void> clearStopped() => _prefs.remove(_kStoppedDay);
