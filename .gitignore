@@ -53,3 +53,6 @@ android/key.properties
 android/app/release.jks
 *.jks
 *.keystore
+
+# Lokale Release-Signatur (siehe signing.env.example) – niemals einchecken
+/signing.env

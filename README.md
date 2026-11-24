@@ -95,12 +95,19 @@ Die Skripte in `scripts/` werden sowohl lokal als auch von GitHub Actions verwen
 
 Optionen über Umgebungsvariablen:
 
-- `FLUTTER=/pfad/zu/flutter` – anderes Flutter-Binary verwenden
+- `FLUTTER=/pfad/zu/flutter` – anderes Flutter-Binary verwenden (ohne Angabe: `flutter` aus dem `PATH`, sonst das SDK aus `android/local.properties`)
 - `SYNC_URL=antatime.de` – Sync-Server, der beim Einrichten der Synchronisation vorausgefüllt ist (in GitHub Actions aus der Repository-Variable `SYNC_URL`)
 - `BASE_HREF=/antatime/` – Unterpfad für die Web-App (z. B. GitHub Pages)
 - `SKIP_DEB=1`, `SKIP_APPIMAGE=1` – einzelne Linux-Pakete auslassen
 - `IOS_SIGN=1` – signiertes IPA über `flutter build ipa` (Apple-Developer-Account in Xcode nötig)
 - Android-Release-Signatur: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (oder eigene `android/key.properties`). Ohne diese wird mit dem Debug-Key signiert.
+
+Lokal signierte APKs bauen: Vorlage kopieren und ausfüllen – `signing.env` ist in `.gitignore` und wird nicht eingecheckt. `scripts/build_android.sh` lädt die Datei automatisch. Statt des base64-kodierten Keystores genügt dort der Pfad (`ANDROID_KEYSTORE_FILE`). Die Werte sind dieselben wie die Repository-Secrets; GitHub gibt Secrets aber nicht wieder heraus, also Keystore und Passwörter aus der eigenen Ablage nehmen. Passwörter mit Sonderzeichen in einfache Anführungszeichen setzen.
+
+```bash
+cp signing.env.example signing.env
+scripts/build_android.sh   # -> dist/antatime-<version>.apk, mit dem Release-Key signiert
+```
 
 Keystore erzeugen und für das Secret kodieren:
 
@@ -131,7 +138,7 @@ base64 -w0 release.jks   # Inhalt als Secret ANDROID_KEYSTORE_BASE64 hinterlegen
 8. **release** – bei Tags `v*` ein GitHub-Release mit allen Paketen (Android, Web, Linux und Windows müssen erfolgreich sein)
 9. **pages** (optional) – Web-App auf GitHub Pages: unter *Settings → Pages* die Quelle „GitHub Actions“ wählen und die Repository-Variable `DEPLOY_PAGES=true` setzen
 
-Für signierte Android-Releases die vier `ANDROID_*`-Werte als Repository-Secrets anlegen. **Wichtig:** Ohne diese Secrets signiert jeder CI-Lauf mit einem neuen Debug-Key – eine bereits installierte App lässt sich dann nicht per Update überschreiben (nur deinstallieren und neu installieren, Daten vorher exportieren). Der `versionCode` wird in CI aus der Lauf-Nummer gesetzt.
+Für signierte Android-Releases die vier `ANDROID_*`-Werte als Repository-Secrets anlegen. **Wichtig:** Ohne diese Secrets signiert jeder CI-Lauf mit einem neuen Debug-Key – eine bereits installierte App lässt sich dann nicht per Update überschreiben (nur deinstallieren und neu installieren, Daten vorher exportieren). Der `versionCode` wird lokal wie in CI aus der Zeit gesetzt (Sekunden seit 2025-01-01), sodass sich jede neu gebaute APK über die vorige installieren lässt – auch abwechselnd lokal und aus CI gebaut.
 
 ## Plattform-Hinweise
 

@@ -4,8 +4,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="${DIST_DIR:-$ROOT_DIR/dist}"
-# Eigenes Flutter-Binary über FLUTTER=/pfad/zu/flutter möglich.
-FLUTTER="${FLUTTER:-flutter}"
+# Eigenes Flutter-Binary über FLUTTER=/pfad/zu/flutter möglich. Sonst
+# `flutter` aus dem PATH oder das SDK aus android/local.properties
+# (flutter.sdk, schreibt Flutter selbst beim ersten Android-Build).
+if [[ -z "${FLUTTER:-}" ]]; then
+  FLUTTER=flutter
+  if ! command -v flutter >/dev/null 2>&1 && [[ -f "$ROOT_DIR/android/local.properties" ]]; then
+    SDK="$(sed -n 's/^flutter\.sdk=//p' "$ROOT_DIR/android/local.properties" | tail -n1)"
+    [[ -n "$SDK" && -x "$SDK/bin/flutter" ]] && FLUTTER="$SDK/bin/flutter"
+  fi
+fi
 
 if ! command -v "$FLUTTER" >/dev/null 2>&1; then
   echo "Flutter nicht gefunden. Installieren (https://docs.flutter.dev/get-started/install)" >&2
