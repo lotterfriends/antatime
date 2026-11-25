@@ -353,17 +353,73 @@ class AppData {
   /// Ergebnis erhalten. [onDropped] erfährt jede entfernte Arbeitszeit (im
   /// Zustand vor dem Entfernen). Gibt `true` zurück, wenn etwas geändert
   /// wurde.
-  bool resolveOverlaps({void Function(WorkSession dropped)? onDropped}) {
+  ///
+  /// Das alles gilt nur für doppelte Starts am selben Tag. Eine Arbeitszeit,
+  /// die noch läuft bzw. lief, als an einem späteren Tag eine weitere begann,
+  /// ist dagegen veraltet (z. B. ein seit Tagen offener Browser-Tab, dessen
+  /// Stand nie beim Sync ankam) – als „zuerst gestartete“ würde sie alle
+  /// seither erfassten Arbeitszeiten verdrängen. Sie endet deshalb mit dem
+  /// Beginn der nächsten Arbeitszeit, alle späteren bleiben unverändert.
+  /// [onStaleEnded] erfährt sie im Zustand davor.
+  bool resolveOverlaps({
+    void Function(WorkSession dropped)? onDropped,
+    void Function(WorkSession stale)? onStaleEnded,
+  }) {
     bool overlaps(WorkSession a, DateTime start, DateTime? end) =>
         (a.end == null || start.isBefore(a.end!)) &&
         (end == null || a.start.isBefore(end));
 
-    // 1. Nach Start: Wer beginnt, während eine behaltene Arbeitszeit läuft
-    //    bzw. lief, ist ein doppelter Start und wird zurückgestellt.
+    void mergeNote(WorkSession from, WorkSession into) {
+      final note = from.note?.trim();
+      if (note == null || note.isEmpty || (into.note ?? '').contains(note)) {
+        return;
+      }
+      into.note = [
+        if (into.note != null && into.note!.trim().isNotEmpty) into.note!,
+        note,
+      ].join('\n');
+    }
+
     final ordered = [...sessions]..sort((a, b) {
         final c = a.start.compareTo(b.start);
         return c != 0 ? c : a.id.compareTo(b.id);
       });
+    final dropped = <WorkSession>{};
+
+    // 0. Veraltete Arbeitszeiten beenden, bevor sie als „zuerst gestartet“
+    //    gewinnen können.
+    var staleEnded = false;
+    for (var i = 0; i + 1 < ordered.length; i++) {
+      final s = ordered[i];
+      final day = dayOf(s.start);
+      // Endet am selben Tag: kann in keinen späteren Tag hineinreichen.
+      if (s.end != null && !dayOf(s.end!).isAfter(day)) continue;
+      var stale = false;
+      for (var j = i + 1; j < ordered.length; j++) {
+        final later = ordered[j];
+        if (s.end != null && !later.start.isBefore(s.end!)) break;
+        if (dayOf(later.start).isAfter(day)) {
+          stale = true;
+          break;
+        }
+      }
+      if (!stale) continue;
+      staleEnded = true;
+      final next = ordered[i + 1];
+      if (next.start.isAfter(s.start)) {
+        onStaleEnded?.call(s.copy());
+        s.end = next.start;
+      } else {
+        // Gleicher Beginn: Es bliebe nichts übrig.
+        dropped.add(s);
+        onDropped?.call(s.copy());
+        mergeNote(s, next);
+      }
+    }
+    if (dropped.isNotEmpty) ordered.removeWhere(dropped.contains);
+
+    // 1. Nach Start: Wer beginnt, während eine behaltene Arbeitszeit läuft
+    //    bzw. lief, ist ein doppelter Start und wird zurückgestellt.
     final kept = <WorkSession>[];
     final duplicates = <(WorkSession, WorkSession)>[];
     for (final s in ordered) {
@@ -378,12 +434,11 @@ class AppData {
         duplicates.add((s, winner));
       }
     }
-    if (duplicates.isEmpty) return false;
+    if (duplicates.isEmpty && !staleEnded) return false;
 
     // 2. Doppelte Starts weichen allen anderen Arbeitszeiten: Laufende
     //    entfallen; beendete beginnen erst nach dem Ende der letzten, mit der
     //    sie sich überschneiden (so bleiben deren Pausen erhalten).
-    final dropped = <WorkSession>{};
     for (final (s, winner) in duplicates) {
       final others = kept
           .where((k) => overlaps(k, s.start, s.end))
@@ -401,16 +456,7 @@ class AppData {
       }
       dropped.add(s);
       onDropped?.call(s.copy());
-      final note = s.note?.trim();
-      if (note != null &&
-          note.isNotEmpty &&
-          !(winner.note ?? '').contains(note)) {
-        winner.note = [
-          if (winner.note != null && winner.note!.trim().isNotEmpty)
-            winner.note!,
-          note,
-        ].join('\n');
-      }
+      mergeNote(s, winner);
     }
     sessions
       ..removeWhere(dropped.contains)

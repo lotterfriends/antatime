@@ -161,6 +161,19 @@ class SyncService extends ChangeNotifier {
         'prüfen und fehlende Zeit nachtragen.';
   }
 
+  /// Hinweis, wenn eine veraltete Arbeitszeit (seit [start]) beim Abgleich
+  /// beendet wurde, weil seither – an späteren Tagen – weitere Arbeitszeiten
+  /// erfasst wurden (siehe [AppData.resolveOverlaps]). Ihr tatsächliches
+  /// Ende kennt die App nicht, also muss der Nutzer prüfen.
+  static String staleEndedNotice(DateTime start, DateTime end) {
+    String at(DateTime t) => '${formatDateShort(t)}, ${formatTime(t)} Uhr';
+    return 'Die Zeiterfassung vom ${at(start)} lief auf einem Gerät noch '
+        'weiter, obwohl danach bereits weitere Arbeitszeiten erfasst wurden '
+        '(z. B. ein lange nicht synchronisiertes Gerät). Damit sie diese nicht '
+        'überschreibt, wurde sie zum Beginn der nächsten Arbeitszeit beendet '
+        '(${at(end)}). Bitte ihr Ende prüfen und anpassen.';
+  }
+
   /// Wie weit die Uhr dieses Geräts von der des Servers abweicht (positiv =
   /// geht vor); `null` = unbekannt. Beim Verbinden ermittelt.
   Duration? clockOffset;
@@ -888,10 +901,24 @@ class SyncService extends ChangeNotifier {
   /// Überschneiden sich Arbeitszeiten (auf zwei Geräten gestartet), gewinnt
   /// die zuerst gestartete (siehe [AppData.resolveOverlaps]). Die Änderungen
   /// gehen an alle Geräte; die kommen unabhängig davon zum selben Ergebnis.
+  ///
+  /// Veraltete Arbeitszeiten werden dabei beendet statt zu gewinnen; darüber
+  /// informiert ein Hinweis.
   bool _resolveOverlaps(AppData data, SyncState st,
       {void Function(WorkSession dropped)? onDropped}) {
-    final changed = data.resolveOverlaps(onDropped: onDropped);
+    WorkSession? stale;
+    final changed = data.resolveOverlaps(
+        onDropped: onDropped, onStaleEnded: (s) => stale ??= s);
     if (changed) st.diffLocal(recordsOf(data));
+    final was = stale;
+    if (was != null) {
+      final end =
+          data.sessions.where((s) => s.id == was.id).firstOrNull?.end;
+      if (end != null) {
+        notice = staleEndedNotice(was.start, end);
+        _notify();
+      }
+    }
     return changed;
   }
 

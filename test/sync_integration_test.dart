@@ -317,6 +317,72 @@ void main() {
     pc.sync.dispose();
   }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
 
+  test('Alter Tab mit laufender Zeit überschreibt keine späteren Tage',
+      () async {
+    final code = SyncCrypto.generateCode();
+    final phone = FakeDevice('Handy');
+    final tab = FakeDevice('Tab');
+    final today = dayOf(DateTime.now());
+    DateTime t(int daysAgo, int h) =>
+        today.subtract(Duration(days: daysAgo)).add(Duration(hours: h));
+
+    await phone.sync.enable(url: url!, code: code, join: false);
+    await tab.sync.enable(url: url, code: code, join: true);
+    await waitFor(() => tab.sync.status == SyncStatus.online, reason: 'Tab');
+
+    // Vor drei Tagen im Tab gestartet, das Handy sieht es.
+    await tab.edit((d) => d.sessions.add(WorkSession(id: 'r', start: t(3, 8))));
+    await waitFor(() => phone.data.running?.id == 'r', reason: 'Handy sieht r');
+    await waitFor(() => tab.sync.status == SyncStatus.online);
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+    // Der Tab verliert die Verbindung (Rechner im Ruhezustand).
+    tab.sync.dispose();
+
+    // Am Handy: Feierabend und zwei weitere Tage.
+    await phone.edit((d) => d.running!.end = t(3, 17));
+    await phone.edit((d) => d.sessions.addAll([
+          WorkSession(id: 'd2', start: t(2, 8), end: t(2, 16)),
+          WorkSession(id: 'd1', start: t(1, 8), end: t(1, 16)),
+        ]));
+    final expected = [(t(3, 8), t(3, 17)), (t(2, 8), t(2, 16)), (t(1, 8), t(1, 16))];
+    List<(DateTime, DateTime?)> times(FakeDevice d) =>
+        d.data.sessions.map((s) => (s.start, s.end)).toList();
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+
+    // Tage später: Der Tab wacht auf, zeigt „läuft seit drei Tagen“, und es
+    // wird sofort „Pause“ gedrückt – noch bevor der Abgleich da ist.
+    final tabAgain = FakeDevice('Tab', tab.storage);
+    await tabAgain.edit((d) => d.running!.end = DateTime.now());
+    await waitFor(() => tabAgain.sync.status == SyncStatus.online,
+        reason: 'Tab wieder online');
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    for (final d in [tabAgain, phone]) {
+      expect(times(d), expected, reason: d.name);
+    }
+    tabAgain.sync.dispose();
+
+    // Dasselbe mit einer Zeit, die der Server nie gesehen hat: Sie endet
+    // mit dem Beginn der nächsten Arbeitszeit, und der Tab weist darauf hin.
+    final offline = FakeDevice('Tab 2', tab.storage);
+    await offline.edit(
+        (d) => d.sessions.add(WorkSession(id: 'u', start: t(2, 7))));
+    await waitFor(() => offline.sync.notice != null, reason: 'Hinweis');
+    expect(offline.sync.notice, contains('Bitte ihr Ende prüfen'));
+    await waitFor(() => phone.data.sessions.length == 4, reason: 'Handy hat u');
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    for (final d in [offline, phone]) {
+      expect(times(d), [
+        expected[0],
+        (t(2, 7), t(2, 8)),
+        ...expected.skip(1),
+      ], reason: d.name);
+    }
+    expect(phone.sync.notice, isNull);
+
+    offline.sync.dispose();
+    phone.sync.dispose();
+  }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
   test('Viele gleichzeitig offene Geräte bleiben synchron', () async {
     final code = SyncCrypto.generateCode();
     // Mehr als das frühere Limit von 20 Verbindungen pro Code.

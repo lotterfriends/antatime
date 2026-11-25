@@ -102,7 +102,8 @@ void applyRecord(AppData data, String name, Object? value, {bool deleted = false
 
 /// Stand eines Datensatzes, wie er zuletzt synchronisiert wurde.
 class SyncEntry {
-  SyncEntry(this.content, this.modified, {this.pending = false});
+  SyncEntry(this.content, this.modified,
+      {this.pending = false, this.stopBase});
 
   /// Kanonischer Inhalt; `null` = gelöscht.
   String? content;
@@ -113,12 +114,34 @@ class SyncEntry {
   /// Lokale Änderung, die der Server noch nicht bestätigt hat.
   bool pending;
 
-  List<Object?> toJson() =>
-      [content, modified, if (pending) 1];
+  /// Nur bei ausstehenden Änderungen, die eine laufende Arbeitszeit beendet
+  /// haben (Pause/Feierabend): Zeitstempel des Stands, auf dem das beruhte.
+  /// Siehe [SyncState.applyRemote].
+  int? stopBase;
+
+  List<Object?> toJson() => [
+        content,
+        modified,
+        if (pending) 1,
+        if (pending && stopBase != null) stopBase,
+      ];
 
   factory SyncEntry.fromJson(List<dynamic> j) => SyncEntry(
       j[0] as String?, (j[1] as num).toInt(),
-      pending: j.length > 2);
+      pending: j.length > 2,
+      stopBase: j.length > 3 ? (j[3] as num?)?.toInt() : null);
+}
+
+/// Hat die Arbeitszeit mit diesem Inhalt (JSON-Text bzw. dekodiert) ein Ende?
+/// `null` = keine lesbare Arbeitszeit.
+bool? _sessionEnded(Object? content) {
+  try {
+    final j = content is String ? jsonDecode(content) : content;
+    if (j is! Map) return null;
+    return j['endUtc'] != null || j['end'] != null;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Lokaler Sync-Zustand (Code, Server, letzter Stand, Snapshot je Datensatz).
@@ -165,7 +188,14 @@ class SyncState {
         final modified =
             at == null ? tick(now) : max(at, (e?.modified ?? 0) + 1);
         clock = max(clock, modified);
-        records[name] = SyncEntry(content, modified, pending: true);
+        // Pause/Feierabend: Eine laufende Arbeitszeit wurde beendet.
+        final stopped = e != null &&
+            name.startsWith('s:') &&
+            e.content != null &&
+            _sessionEnded(e.content) == false &&
+            _sessionEnded(content) == true;
+        records[name] = SyncEntry(content, modified,
+            pending: true, stopBase: stopped ? e.modified : null);
         changed++;
       }
     });
@@ -193,17 +223,32 @@ class SyncState {
 
   /// Übernimmt einen Datensatz vom Server (Last-Writer-Wins nach Zeitstempel).
   /// Gibt `true` zurück, wenn [data] geändert wurde.
+  ///
+  /// Ausnahme: Wurde hier eine laufende Arbeitszeit beendet, ohne zu wissen,
+  /// dass sie anderswo längst beendet (oder gelöscht) ist, gilt deren Stand –
+  /// auch wenn er älter ist. Sonst würde „Pause“ auf einem Gerät, das tagelang
+  /// nicht synchronisiert hat (z. B. ein alter Browser-Tab), das richtige Ende
+  /// durch „jetzt“ ersetzen; die Arbeitszeit reichte dann über alle seither
+  /// erfassten hinweg und würde sie verdrängen.
   bool applyRemote(AppData data, String name, int modified, Object? value,
       {required bool deleted}) {
     clock = max(clock, modified);
     final local = records[name];
-    if (local != null && local.modified > modified) {
+    final base = local?.stopBase;
+    final staleStop = local != null &&
+        local.pending &&
+        base != null &&
+        modified > base &&
+        (deleted || _sessionEnded(value) == true);
+    if (staleStop) {
+      // Weiter unten übernehmen.
+    } else if (local != null && local.modified > modified) {
       // Unser Stand ist neuer. Falls er schon hochgeladen war, hat der Server
       // ihn gerade mit einem älteren überschrieben → erneut senden.
       local.pending = true;
       return false;
     }
-    if (local != null && local.modified == modified) {
+    if (!staleStop && local != null && local.modified == modified) {
       final remote = deleted ? '' : jsonEncode(value);
       final mine = local.content ?? '';
       if (remote == mine) {

@@ -249,6 +249,167 @@ void main() {
       expect(sw.elapsedMilliseconds, lessThan(200));
     });
 
+    test('Veraltete laufende Zeit verdrängt keine späteren Arbeitszeiten', () {
+      AppData make(List<WorkSession> s) =>
+          AppData(sessions: s, absences: [], settings: Settings());
+      DateTime t(int day, int h, [int m = 0]) => DateTime(2026, 11, day, h, m);
+      List<(DateTime, DateTime?)> times(AppData d) =>
+          d.sessions.map((s) => (s.start, s.end)).toList();
+      List<WorkSession> later() => [
+            WorkSession(id: 'a1', start: t(23, 8, 5), end: t(23, 12)),
+            WorkSession(id: 'a2', start: t(23, 13), end: t(23, 17)),
+            WorkSession(id: 'b1', start: t(24, 8), end: t(24, 16), note: 'Di'),
+            WorkSession(id: 'c1', start: t(25, 9)),
+          ];
+
+      // Ein alter Browser-Tab erfasst seit Montag – inzwischen wurde auf
+      // anderen Geräten tagelang gearbeitet. Alles Spätere bleibt, die
+      // veraltete Zeit endet mit dem Beginn der nächsten.
+      final stale = make([WorkSession(id: 'alt', start: t(23, 8)), ...later()]);
+      final ended = <WorkSession>[];
+      final dropped = <WorkSession>[];
+      expect(
+          stale.resolveOverlaps(
+              onStaleEnded: ended.add, onDropped: dropped.add),
+          isTrue);
+      expect(times(stale), [
+        (t(23, 8), t(23, 8, 5)),
+        ...later().map((s) => (s.start, s.end)),
+      ]);
+      expect(stale.sessions[3].note, 'Di');
+      expect(stale.running?.id, 'c1');
+      expect(ended.single.id, 'alt');
+      expect(ended.single.isRunning, isTrue, reason: 'Zustand davor');
+      expect(dropped, isEmpty);
+      expect(stale.resolveOverlaps(), isFalse);
+
+      // Dort erst nach Tagen „Pause“ gedrückt: Die Zeit reicht über alles
+      // hinweg – auch dann geht nichts verloren.
+      final stopped = make([
+        WorkSession(id: 'alt', start: t(23, 8), end: t(26, 10)),
+        ...later().take(3),
+      ]);
+      expect(stopped.resolveOverlaps(), isTrue);
+      expect(times(stopped), [
+        (t(23, 8), t(23, 8, 5)),
+        ...later().take(3).map((s) => (s.start, s.end)),
+      ]);
+
+      // Mehrere veraltete nacheinander.
+      final two = make([
+        WorkSession(id: 'x', start: t(23, 8)),
+        WorkSession(id: 'y', start: t(24, 8)),
+        WorkSession(id: 'z', start: t(25, 9), end: t(25, 10)),
+      ]);
+      expect(two.resolveOverlaps(), isTrue);
+      expect(times(two), [
+        (t(23, 8), t(24, 8)),
+        (t(24, 8), t(25, 9)),
+        (t(25, 9), t(25, 10)),
+      ]);
+
+      // Gleicher Beginn: Von der veralteten bliebe nichts – ihre Notiz
+      // wandert in die andere.
+      final same = make([
+        WorkSession(id: 'a', start: t(23, 8), note: 'Tab'),
+        WorkSession(id: 'b', start: t(23, 8), end: t(23, 12)),
+        WorkSession(id: 'c', start: t(24, 8), end: t(24, 12)),
+      ]);
+      expect(same.resolveOverlaps(), isTrue);
+      expect(same.sessions.map((s) => s.id), ['b', 'c']);
+      expect(same.sessions.first.note, 'Tab');
+
+      // Über Mitternacht ohne spätere Arbeitszeit: kein Konflikt. Und eine
+      // lange laufende Zeit allein bleibt, wie sie ist.
+      final night = make([
+        WorkSession(id: 'n', start: t(23, 22), end: t(24, 6)),
+        WorkSession(id: 'm', start: t(24, 22)),
+      ]);
+      expect(night.resolveOverlaps(), isFalse);
+      expect(make([WorkSession(id: 'r', start: t(20, 8))]).resolveOverlaps(),
+          isFalse);
+    });
+
+    test('Pause auf veraltetem Stand überschreibt kein früheres Ende', () {
+      final start = DateTime(2026, 11, 23, 8);
+      WorkSession session([DateTime? end]) =>
+          WorkSession(id: 'a', start: start, end: end);
+      AppData make(WorkSession s) =>
+          AppData(sessions: [s], absences: [], settings: Settings());
+      SyncState synced(AppData data) {
+        final st = SyncState(url: 'x', code: 'y')
+          ..diffLocal(recordsOf(data), DateTime.fromMillisecondsSinceEpoch(1000));
+        st.acked(st.records.entries.map((e) => (e.key, e.value.modified)));
+        return st;
+      }
+
+      final at17 = DateTime(2026, 11, 23, 17);
+      final days = DateTime(2026, 11, 26, 10);
+
+      // Alter Tab: läuft seit Montag, am Donnerstag „Pause“ gedrückt, bevor
+      // der Abgleich da war. Anderswo wurde am Montag um 17 Uhr beendet.
+      var data = make(session());
+      var st = synced(data);
+      final base = st.records['s:a']!.modified;
+      data.sessions.single.end = days;
+      expect(st.diffLocal(recordsOf(data), days), 1);
+      expect(st.records['s:a']!.stopBase, base);
+      // Bleibt über das Speichern hinweg erhalten.
+      st = SyncState.fromJson(
+          jsonDecode(jsonEncode(st.toJson())) as Map<String, dynamic>);
+      expect(st.records['s:a']!.stopBase, base);
+      expect(
+          st.applyRemote(data, 's:a', base + 10, session(at17).toJson(),
+              deleted: false),
+          isTrue);
+      expect(data.sessions.single.end, at17);
+      expect(st.pending, isEmpty, reason: 'nichts davon wird hochgeladen');
+
+      // Anderswo gelöscht: bleibt gelöscht.
+      data = make(session());
+      st = synced(data);
+      data.sessions.single.end = days;
+      st.diffLocal(recordsOf(data), days);
+      expect(st.applyRemote(data, 's:a', base + 10, null, deleted: true),
+          isTrue);
+      expect(data.sessions, isEmpty);
+      expect(st.pending, isEmpty);
+
+      // Läuft anderswo unverändert weiter (z. B. nur die Notiz geändert):
+      // „Pause“ gilt.
+      data = make(session());
+      st = synced(data);
+      data.sessions.single.end = days;
+      st.diffLocal(recordsOf(data), days);
+      expect(
+          st.applyRemote(data, 's:a', base + 10,
+              (session()..note = 'x').toJson(),
+              deleted: false),
+          isFalse);
+      expect(data.sessions.single.end, days);
+      expect(st.pending, ['s:a']);
+
+      // Das eigene Echo des Stands, auf dem die Pause beruht, ändert nichts.
+      expect(
+          st.applyRemote(data, 's:a', base, session().toJson(),
+              deleted: false),
+          isFalse);
+      expect(data.sessions.single.end, days);
+
+      // Ein bewusst geändertes Ende (Editor) ist keine Pause: neuester gewinnt.
+      data = make(session(at17));
+      st = synced(data);
+      data.sessions.single.end = days;
+      st.diffLocal(recordsOf(data), days);
+      expect(st.records['s:a']!.stopBase, isNull);
+      expect(
+          st.applyRemote(data, 's:a', base + 10,
+              session(DateTime(2026, 11, 23, 16)).toJson(),
+              deleted: false),
+          isFalse);
+      expect(data.sessions.single.end, days);
+    });
+
     test('Alle Daten werden zu Datensätzen und zurück', () {
       final src = sample();
       final records = recordsOf(src);
@@ -500,6 +661,14 @@ void main() {
       d.resolveOverlaps(onDropped: dropped.add);
       expect(dropped.single.id, 'pc');
       expect(dropped.single.isRunning, isTrue);
+    });
+
+    test('Hinweis, wenn eine veraltete Zeiterfassung beendet wurde', () {
+      expect(
+          SyncService.staleEndedNotice(
+              DateTime(2026, 11, 23, 8), DateTime(2026, 11, 23, 8, 5)),
+          allOf(contains('vom 23.11.2026, 08:00 Uhr'),
+              contains('(23.11.2026, 08:05 Uhr)')));
     });
 
     test('Warnung bei falsch gehender Geräteuhr', () {
