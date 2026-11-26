@@ -178,6 +178,9 @@ class TrayService with TrayListener, WindowListener {
     }
   }
 
+  /// Beendet die App (z. B. für den Neustart nach einem Update).
+  Future<void> quit() => _quit();
+
   Future<void> _quit() async {
     _quitting = true;
     _state?.removeListener(_onStateChanged);

@@ -30,6 +30,15 @@ DART_DEFINES=()
 if [[ -n "${SYNC_URL:-}" ]]; then
   DART_DEFINES+=("--dart-define=SYNC_URL=$SYNC_URL")
 fi
+# Updates holt die App aus den GitHub-Releases (lib/update/). Für einen
+# Fork: UPDATE_REPO=besitzer/name. Stattdessen einen AnTaTime-Server fragen
+# (dessen UPDATES_DIR): UPDATE_URL=antatime.de.
+if [[ -n "${UPDATE_REPO:-}" ]]; then
+  DART_DEFINES+=("--dart-define=UPDATE_REPO=$UPDATE_REPO")
+fi
+if [[ -n "${UPDATE_URL:-}" ]]; then
+  DART_DEFINES+=("--dart-define=UPDATE_URL=$UPDATE_URL")
+fi
 
 mkdir -p "$DIST_DIR"
 cd "$ROOT_DIR"

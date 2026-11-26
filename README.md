@@ -18,6 +18,7 @@ Arbeitszeiterfassung mit Stundenkonto – als Flutter-App für **Android**, **iP
 - **Nacherfassen** und **Bearbeiten/Löschen** von Arbeitszeiten (inkl. Prüfung auf Überschneidungen, über Mitternacht möglich)
 - Verlauf pro Monat mit Tages- und Monatssaldo
 - **Synchronisation** (optional) zwischen mehreren Geräten über einen eigenen [AnTaTime-Server](../antatime-server) – Ende-zu-Ende-verschlüsselt, Änderungen erscheinen sofort auf allen offenen Geräten (siehe unten). Nach Netzwerkwechseln oder Unterbrechungen verbindet sich die App selbst neu; im Browser hält nur ein Tab die Verbindung, die anderen übernehmen dessen Änderungen. Unter Android hält die App die Verbindung auch im Hintergrund, solange die Benachrichtigung sichtbar ist, und gleicht sonst etwa alle 15 Minuten ab – so zeigt die Benachrichtigung Start/Pause auf anderen Geräten, ohne dass die App geöffnet werden muss (Einstellungen → Synchronisation → „Im Hintergrund synchronisieren“, standardmäßig an; abschaltbar, um Akku zu sparen)
+- **Updates ohne Store** (Android-APK, Linux, Windows, macOS): Die App sucht gelegentlich in den GitHub-Releases nach einer neueren Version, weist darauf hin und installiert sie nach Bestätigung (Einstellungen → Updates, siehe unten)
 - **Export / Import** aller Arbeitszeiten, Abwesenheiten und Einstellungen als JSON-Datei (Einstellungen → Daten). Der Import ersetzt alle vorhandenen Daten.
 - **CSV-Export** für einen frei wählbaren Zeitraum (Einstellungen → Daten → „Als CSV exportieren“): eine Zeile je Tag mit Beginn, Ende, Arbeitszeit, Pausen, Soll, Zuschlägen, Abwesenheit, Differenz und Notizen sowie eine Summenzeile. Semikolon als Trennzeichen, Stunden als Dezimalzahl mit Komma (z. B. 8,50) – öffnet sich direkt in Excel/LibreOffice. Die Differenz zählt wie im Stundenkonto nur ab dem Erfassungsbeginn bis heute
 
@@ -97,6 +98,8 @@ Optionen über Umgebungsvariablen:
 
 - `FLUTTER=/pfad/zu/flutter` – anderes Flutter-Binary verwenden (ohne Angabe: `flutter` aus dem `PATH`, sonst das SDK aus `android/local.properties`)
 - `SYNC_URL=antatime.de` – Sync-Server, der beim Einrichten der Synchronisation vorausgefüllt ist (in GitHub Actions aus der Repository-Variable `SYNC_URL`)
+- `UPDATE_REPO=besitzer/name` – GitHub-Repository, in dessen Releases die App nach Updates sucht (Standard: `lotterfriends/antatime`, nur für Forks nötig)
+- `UPDATE_URL=antatime.de` – Updates statt von GitHub von einem AnTaTime-Server holen (dessen `UPDATES_DIR`), z. B. bei einem privaten Repository
 - `BASE_HREF=/antatime/` – Unterpfad für die Web-App (z. B. GitHub Pages)
 - `SKIP_DEB=1`, `SKIP_APPIMAGE=1` – einzelne Linux-Pakete auslassen
 - `IOS_SIGN=1` – signiertes IPA über `flutter build ipa` (Apple-Developer-Account in Xcode nötig)
@@ -139,6 +142,28 @@ base64 -w0 release.jks   # Inhalt als Secret ANDROID_KEYSTORE_BASE64 hinterlegen
 9. **pages** (optional) – Web-App auf GitHub Pages: unter *Settings → Pages* die Quelle „GitHub Actions“ wählen und die Repository-Variable `DEPLOY_PAGES=true` setzen
 
 Für signierte Android-Releases die vier `ANDROID_*`-Werte als Repository-Secrets anlegen. **Wichtig:** Ohne diese Secrets signiert jeder CI-Lauf mit einem neuen Debug-Key – eine bereits installierte App lässt sich dann nicht per Update überschreiben (nur deinstallieren und neu installieren, Daten vorher exportieren). Der `versionCode` wird lokal wie in CI aus der Zeit gesetzt (Sekunden seit 2025-01-01), sodass sich jede neu gebaute APK über die vorige installieren lässt – auch abwechselnd lokal und aus CI gebaut.
+
+## Updates ohne Store
+
+Android (als APK installiert), Linux, Windows und macOS holen neue Versionen direkt aus den **GitHub-Releases** dieses Repositorys – also genau die Pakete, die der `release`-Job bei einem Tag `v*` anhängt. Mehr als das Tag ist für ein Update nicht nötig.
+
+Die App (`lib/update/`) fragt `https://api.github.com/repos/lotterfriends/antatime/releases/latest` ab – beim Start und danach höchstens alle 12 Stunden, abschaltbar unter Einstellungen → Updates; dort lässt sich auch von Hand suchen. Entwürfe und Vorabversionen (Pre-Releases) nennt GitHub dort nicht, sie werden also nicht verteilt. Hat das Release ein Paket für diese Installation mit höherer Version, erscheinen ein Hinweis und ein Punkt an „Einstellungen“. Installiert wird erst nach Bestätigung; der Download wird mit der Größe und dem SHA-256 geprüft, die GitHub zu jedem Anhang nennt.
+
+Voraussetzungen: Das Repository ist öffentlich (die Abfrage läuft ohne Anmeldung; GitHub erlaubt so 60 Abfragen pro Stunde und Internetanschluss), und die Anhänge heißen so, wie die Build-Skripte sie nennen. Ein Release ohne das passende Paket (z. B. wenn der macOS-Job ausfiel) wird für diese Plattform einfach nicht angeboten.
+
+| Installation | Ablauf |
+| --- | --- |
+| Android | Die APK wird dem Paketinstaller des Systems übergeben, der noch einmal nachfragt. Beim ersten Mal muss AnTaTime das Installieren von Apps erlaubt werden. Android nimmt nur APKs an, die mit demselben Schlüssel signiert sind – also immer mit der Release-Signatur bauen (siehe oben) |
+| AppImage | Die neue Datei ersetzt die alte (das Verzeichnis muss beschreibbar sein), danach startet die App neu |
+| .deb | Installation über `pkexec apt-get install` – das System fragt nach dem Passwort –, danach Neustart |
+| tar.gz | Das Programmverzeichnis wird durch das neue ersetzt (das übergeordnete Verzeichnis muss beschreibbar sein), danach Neustart |
+| Windows, Installer | Erkannt an `unins000.exe` neben `antatime.exe`. Ein PowerShell-Helfer wartet, bis die App beendet ist, führt das Setup still aus (`/SILENT`, gleiche Art wie die vorhandene Installation; bei „für alle Benutzer“ fragt Windows nach) und startet die App wieder |
+| Windows, Zip | Das Zip wird entpackt; der Helfer kopiert die Dateien nach dem Beenden der App über die alten (das Verzeichnis muss beschreibbar sein) und startet sie wieder |
+| macOS | Die App läuft in der Sandbox und kann sich nicht selbst ersetzen. „Herunterladen“ öffnet das Disk-Image im Browser; danach AnTaTime beenden und die App in „Programme“ von Hand ersetzen. Da die App nicht notarisiert ist, gilt für die neue Version wieder der Hinweis zum ersten Start (siehe unten) |
+
+Verglichen wird die Versionsnummer aus der `pubspec.yaml` (`1.6.0`), nicht die Build-Nummer: Ein Update wird erst angeboten, wenn die Version erhöht wurde. Die Quelle steht beim Build fest; ein in der App eingetragener eigener Sync-Server wird nicht nach Updates gefragt. Entwicklungs-Builds (`flutter run`, direkt aus `build/` gestartet) aktualisieren sich nicht. iOS und die Web-App sind nicht angebunden.
+
+**Eigener Server statt GitHub:** Mit `UPDATE_URL` fragt die App den [AnTaTime-Server](../antatime-server#app-updates), in dessen `UPDATES_DIR` die Pakete aus `dist/` liegen. So lässt sich der Ablauf auch lokal ausprobieren: Server mit `UPDATES_DIR=../antatime-app/dist` starten und die App mit `UPDATE_URL=http://localhost:8080 scripts/build_linux.sh` bauen (unverschlüsselt ist nur `localhost` erlaubt), dann die Version in der `pubspec.yaml` erhöhen und noch einmal bauen.
 
 ## Plattform-Hinweise
 

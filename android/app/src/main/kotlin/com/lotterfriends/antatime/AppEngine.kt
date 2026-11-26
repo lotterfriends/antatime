@@ -35,6 +35,7 @@ object AppEngine {
         channel = MethodChannel(engine.dartExecutor.binaryMessenger, CHANNEL).apply {
             setMethodCallHandler { call, result -> handle(app, call.method, call.arguments, result) }
         }
+        AppUpdate.register(app, engine)
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
         FlutterEngineCache.getInstance().put(ENGINE_ID, engine)
         return engine

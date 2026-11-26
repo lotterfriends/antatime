@@ -8,6 +8,9 @@
          sichtbar ist (SyncKeepAliveService, abschaltbar in den Einstellungen) -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
+    <!-- Updates ohne Play Store: heruntergeladene APK dem Paketinstaller
+         übergeben (AppUpdate.kt); das System fragt jedes Mal nach -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="AnTaTime"
         android:name="${applicationName}"
@@ -49,6 +52,16 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keeps the end-to-end encrypted sync connection open while the time tracking notification is shown, so that starting or pausing on another device updates the notification immediately. Can be turned off in the settings."/>
         </service>
+        <!-- Gibt dem Paketinstaller die heruntergeladene APK zum Lesen frei -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths"/>
+        </provider>
         <!-- Start/Pause/Feierabend aus der Benachrichtigung (Android, nativ) -->
         <receiver android:exported="false" android:name=".NotificationActionReceiver" />
         <!-- Erinnerung zum Start der Zeiterfassung (AlarmManager) -->

@@ -11,9 +11,11 @@ import '../models.dart';
 import '../notification_service.dart';
 import '../tray_icon_style.dart';
 import '../tray_service.dart';
+import '../update/update_service.dart';
 import '../widgets/autostart_tile.dart';
 import '../widgets/backup_tiles.dart';
 import '../widgets/sync_tiles.dart';
+import '../widgets/update_tiles.dart';
 
 /// Speichert eine Einstellung. Gilt eine Änderung am Stundenkonto erst ab
 /// heute (siehe [AppState.updateSettings]), lässt sie sich per Snackbar auch
@@ -385,6 +387,10 @@ class SettingsScreen extends StatelessWidget {
           const SyncTiles(),
           _Section('Daten'),
           const BackupTiles(),
+          if (UpdateService.instance.supported) ...[
+            _Section('Updates'),
+            const UpdateTiles(),
+          ],
           const _VersionInfo(),
         ],
       ),

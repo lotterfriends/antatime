@@ -17,6 +17,7 @@ import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/today_screen.dart';
 import 'tray_service.dart';
+import 'update/update_service.dart';
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +41,9 @@ Future<void> main(List<String> args) async {
       child: const AnTaTimeApp(),
     ),
   );
+  // Android/Linux ohne Store: nach Updates suchen (lib/update/)
+  UpdateService.instance.quit = TrayService.instance.quit;
+  unawaited(UpdateService.instance.start());
   // Desktop: Benachrichtigung beim Erreichen der Tagesstunden
   await DesktopNotifications.instance.watchTarget(state);
   // Desktop: Zeiterfassung beim Programmstart beginnen, falls eingestellt –
@@ -120,8 +124,60 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
+  static const _settingsIndex = 3;
+
   int _index = 0;
+
+  final _updates = UpdateService.instance;
+
+  /// Version, auf die schon per Snackbar hingewiesen wurde.
+  String? _announced;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _updates.addListener(_onUpdates);
+  }
+
+  @override
+  void dispose() {
+    _updates.removeListener(_onUpdates);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _announceUpdate();
+  }
+
+  void _onUpdates() {
+    if (!mounted) return;
+    // Punkt an „Einstellungen“
+    setState(() {});
+    _announceUpdate();
+  }
+
+  /// Weist einmal je Version auf ein Update hin – erst, wenn die App zu
+  /// sehen ist (sie läuft auch im Hintergrund bzw. im Infobereich).
+  void _announceUpdate() {
+    final found = _updates.available;
+    if (found == null || found.version == _announced || !mounted) return;
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    if (lifecycle != null && lifecycle != AppLifecycleState.resumed) return;
+    _announced = found.version;
+    if (_index == _settingsIndex) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('AnTaTime ${found.version} ist verfügbar'),
+      duration: const Duration(seconds: 10),
+      action: SnackBarAction(
+        label: 'Anzeigen',
+        onPressed: () => setState(() => _index = _settingsIndex),
+      ),
+    ));
+  }
 
   static const _pages = [
     TodayScreen(),
@@ -142,15 +198,19 @@ class _HomeShellState extends State<HomeShell> {
         child: NavigationBar(
           selectedIndex: _index,
           onDestinationSelected: (i) => setState(() => _index = i),
-          destinations: const [
-            NavigationDestination(
+          destinations: [
+            const NavigationDestination(
                 icon: Icon(Icons.timer_outlined), label: 'Heute'),
-            NavigationDestination(
+            const NavigationDestination(
                 icon: Icon(Icons.calendar_month), label: 'Verlauf'),
-            NavigationDestination(
+            const NavigationDestination(
                 icon: Icon(Icons.beach_access_outlined), label: 'Abwesend'),
             NavigationDestination(
-                icon: Icon(Icons.settings_outlined), label: 'Einstellungen'),
+                icon: Badge(
+                  isLabelVisible: _updates.available != null,
+                  child: const Icon(Icons.settings_outlined),
+                ),
+                label: 'Einstellungen'),
           ],
         ),
       ),
