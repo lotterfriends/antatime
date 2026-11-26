@@ -53,6 +53,20 @@ Future<void> main(List<String> args) async {
       .then((_) => NotificationService.instance.reportSynced()));
   if (Autostart.instance.supported) await state.autoStartTracking();
   if (autostarted) await _afterAutostart(state);
+  if (Autostart.instance.supported) {
+    unawaited(_afterLateSync(state, autostarted: autostarted));
+  }
+}
+
+/// Lief beim Start noch eine Arbeitszeit vom Vortag und kam der Sync nicht
+/// rechtzeitig (langsames Netz nach dem Hochfahren), wurde weder automatisch
+/// gestartet noch gefragt. Sobald der Sync da ist, wird das nachgeholt.
+Future<void> _afterLateSync(AppState state, {required bool autostarted}) async {
+  if (!await state.waitForStaleRunningSync(const Duration(minutes: 30))) {
+    return;
+  }
+  if (await state.autoStartTracking(syncWait: Duration.zero)) return;
+  if (autostarted) await DesktopNotifications.instance.show(state);
 }
 
 /// Nach dem Start mit dem System: nur im Infobereich bleiben (falls aktiv)

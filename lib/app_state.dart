@@ -96,6 +96,11 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// Heute wurde „Feierabend“ gewählt (Benachrichtigung/Infobereich).
   bool stoppedToday = false;
 
+  /// Zählt Start/Pause/Feierabend durch den Nutzer – damit
+  /// [waitForStaleRunningSync] nichts nachholt, was er inzwischen selbst
+  /// entschieden hat.
+  int _userActions = 0;
+
   void _tick() {
     final before = now;
     now = DateTime.now();
@@ -188,6 +193,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// könnte „Starten“ aus einer Erinnerung oder dem Infobereich pausieren,
   /// wenn inzwischen anderswo gestartet wurde.
   Future<void> toggle({bool? to}) async {
+    _userActions++;
     final started = await _repo.exclusive(() async {
       // Vor dem Umschalten frisch laden, falls die Benachrichtigung
       // inzwischen den Zustand geändert hat.
@@ -210,6 +216,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   /// „Feierabend“: laufende Arbeitszeit beenden und für heute als erledigt
   /// markieren (wie die Feierabend-Aktion der Android-Benachrichtigung).
   Future<void> finishDay() async {
+    _userActions++;
     await _repo.exclusive(() async {
       data = await _repo.load();
       now = DateTime.now();
@@ -445,6 +452,28 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     _changed();
     if (started) await _syncNotification();
     return started;
+  }
+
+  /// Läuft auf diesem Gerät noch eine Arbeitszeit von einem früheren Tag,
+  /// solange der Sync nicht verbunden ist, wurde sie oft längst auf einem
+  /// anderen Gerät beendet (z. B. Rechner heruntergefahren, dann auf dem
+  /// Handy „Feierabend“). Dann blockiert sie beim Programmstart den
+  /// automatischen Start und die Startfrage.
+  ///
+  /// Wartet in diesem Fall bis zu [timeout] auf den Sync. Gibt `true` zurück,
+  /// wenn danach neu entschieden werden soll: Der Sync ist verbunden und der
+  /// Nutzer hat inzwischen nicht selbst gestartet, pausiert oder beendet.
+  Future<bool> waitForStaleRunningSync(Duration timeout) async {
+    final running = data.running;
+    if (running == null ||
+        !dayOf(running.start).isBefore(dayOf(DateTime.now())) ||
+        !sync.enabled ||
+        sync.status == SyncStatus.online) {
+      return false;
+    }
+    final actions = _userActions;
+    await sync.waitUntilSynced(timeout);
+    return sync.status == SyncStatus.online && actions == _userActions;
   }
 
   /// Alle Daten und Einstellungen als JSON-Text.
