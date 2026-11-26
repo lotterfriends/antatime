@@ -41,6 +41,138 @@ enum SyncStatus {
   otherTab,
 }
 
+/// Der Server lässt die App nicht herein – behebt sich nicht von selbst.
+enum SyncProblem {
+  /// Der Server hat die maximale Anzahl an Nutzern erreicht.
+  serverFull,
+
+  /// Der Server verlangt einen Server-Schlüssel, es ist keiner eingetragen.
+  keyRequired,
+
+  /// Der eingetragene Server-Schlüssel ist falsch.
+  keyWrong,
+
+  /// Ein Server-Schlüssel ist eingetragen, der Server verwendet aber keinen.
+  keyUnused,
+
+  /// Der Server konnte sich nicht mit dem Schlüssel ausweisen.
+  serverUnverified,
+
+  /// Der Speicherplatz (des Sync-Codes oder des Servers) ist voll.
+  quotaFull;
+
+  /// Hat mit dem Server-Schlüssel zu tun (in den Einstellungen zu beheben).
+  bool get isKey =>
+      this == keyRequired ||
+      this == keyWrong ||
+      this == keyUnused ||
+      this == serverUnverified;
+
+  String get title => switch (this) {
+        serverFull => 'Server ist voll',
+        keyRequired => 'Server-Schlüssel erforderlich',
+        keyWrong => 'Server-Schlüssel ist falsch',
+        keyUnused => 'Server verwendet keinen Schlüssel',
+        serverUnverified => 'Server nicht bestätigt',
+        quotaFull => 'Speicherplatz ist voll',
+      };
+
+  String get text => switch (this) {
+        serverFull =>
+          'Dieser Server hat die maximale Anzahl an Nutzern erreicht und '
+              'nimmt keine neuen Sync-Codes an. Bitte den Betreiber fragen '
+              'oder einen anderen Server verwenden.',
+        keyRequired =>
+          'Dieser Server verlangt einen Server-Schlüssel. Du bekommst ihn '
+              'vom Betreiber des Servers.',
+        keyWrong =>
+          'Der Server hat den eingetragenen Server-Schlüssel abgelehnt. '
+              'Bitte den Schlüssel prüfen.',
+        keyUnused =>
+          'Es ist ein Server-Schlüssel eingetragen, dieser Server verwendet '
+              'aber keinen. Bitte die Adresse prüfen oder den Schlüssel '
+              'entfernen.',
+        serverUnverified =>
+          'Der Server konnte sich nicht mit dem Server-Schlüssel ausweisen. '
+              'Bitte Adresse und Schlüssel prüfen.',
+        quotaFull => 'Der Speicherplatz auf dem Server ist voll.',
+      };
+
+  static SyncProblem? ofCode(int? code) => switch (code) {
+        SyncErrorCode.serverFull => serverFull,
+        SyncErrorCode.authRequired => keyRequired,
+        SyncErrorCode.authFailed => keyWrong,
+        SyncErrorCode.keyUnused => keyUnused,
+        SyncErrorCode.serverUnverified => serverUnverified,
+        SyncErrorCode.quotaExceeded => quotaFull,
+        _ => null,
+      };
+}
+
+/// Ergebnis von [SyncService.check].
+class SyncCheck {
+  const SyncCheck({this.problem, this.message, this.unreachable = false});
+
+  /// Der Server hat abgelehnt.
+  final SyncProblem? problem;
+
+  /// Meldung für die Anzeige; `null` = alles in Ordnung.
+  final String? message;
+
+  /// Der Server war nicht erreichbar (kein Urteil möglich).
+  final bool unreachable;
+
+  bool get ok => message == null;
+}
+
+/// Anmeldung an Servern mit Server-Schlüssel, vor dem HELLO.
+///
+/// Mit Schlüssel sendet der Client zuerst ein PING: Ein Server mit Anmeldung
+/// hat dann schon eine CHALLENGE geschickt; kommt stattdessen zuerst PONG,
+/// verwendet er keinen Schlüssel.
+class ServerLogin {
+  ServerLogin(this.serverKey) : ready = serverKey == null;
+
+  final String? serverKey;
+
+  /// HELLO darf gesendet werden.
+  bool ready;
+  bool _challenged = false;
+  List<int>? _proof;
+
+  /// Zuerst zu sendende Nachricht (`null` ohne Schlüssel).
+  Uint8List? get opening => serverKey == null ? null : pingFrame;
+
+  /// Verarbeitet CHALLENGE, AUTH_OK und PONG. Liefert `null`, solange nichts
+  /// zu tun ist, `0`, sobald HELLO gesendet werden darf, sonst den Fehler
+  /// (siehe [SyncErrorCode]).
+  Future<int?> handle(ServerMessage m, void Function(Uint8List) send) async {
+    final key = serverKey;
+    if (key == null || ready) return null;
+    switch (m) {
+      case ChallengeMessage(:final nonce):
+        if (_challenged) return null;
+        _challenged = true;
+        final a = await ServerKey.answer(key, nonce);
+        _proof = a.proof;
+        send(encodeAuth(a.ephPub, a.mac));
+      case AuthOkMessage(:final proof):
+        final expected = _proof;
+        if (expected == null) return null;
+        if (!ServerKey.sameBytes(expected, proof)) {
+          return SyncErrorCode.serverUnverified;
+        }
+        ready = true;
+        return 0;
+      case PongMessage():
+        if (!_challenged) return SyncErrorCode.keyUnused;
+      default:
+        break;
+    }
+    return null;
+  }
+}
+
 /// Optionale Synchronisation über einen AnTaTime-Server.
 ///
 /// Ablauf: Nach dem Verbinden sendet die App HELLO mit der zuletzt
@@ -120,8 +252,17 @@ class SyncService extends ChangeNotifier {
   String? url;
   String? code;
 
+  /// Server-Schlüssel (normalisiert), wenn einer eingetragen ist.
+  String? serverKey;
+
   /// Letzter Verbindungsfehler (für die Anzeige).
   String? error;
+
+  /// Der Server lässt die App nicht herein (voll, Server-Schlüssel) – für
+  /// eine deutliche Meldung statt „Offline“.
+  SyncProblem? get problem => status == SyncStatus.offline
+      ? SyncProblem.ofCode(_serverErrorCode)
+      : null;
 
   /// Einmaliger Hinweis, z. B. wenn ein anderes Gerät den Sync beendet hat.
   String? notice;
@@ -198,6 +339,7 @@ class SyncService extends ChangeNotifier {
   SyncStatus get displayStatus {
     final lost = _onlineLostAt;
     if (status == SyncStatus.offline &&
+        problem == null &&
         lost != null &&
         DateTime.now().difference(lost) < offlineGrace) {
       return SyncStatus.connecting;
@@ -208,6 +350,12 @@ class SyncService extends ChangeNotifier {
   SyncCrypto? _crypto;
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _sub;
+
+  /// Anmeldung der laufenden Verbindung und das HELLO, das danach gesendet
+  /// wird (`null`, solange der gespeicherte Stand noch geladen wird).
+  ServerLogin? _login;
+  Uint8List? _pendingHello;
+  bool _helloSent = false;
   int _generation = 0;
   bool _live = false;
 
@@ -289,11 +437,14 @@ class SyncService extends ChangeNotifier {
   /// hochgeladen. `join == true`: bestehender Code, die Daten werden
   /// zusammengeführt (bei Konflikten gewinnt der Server-Stand).
   Future<void> enable(
-      {required String url, required String code, required bool join}) async {
+      {required String url,
+      required String code,
+      required bool join,
+      String? serverKey}) async {
     await _shutdown();
     final st = await _store.exclusive(() async {
       final data = await _store.load();
-      final st = SyncState(url: url, code: code);
+      final st = SyncState(url: url, code: code, serverKey: serverKey);
       final current = recordsOf(data);
       if (join) {
         st.seedForJoin(current);
@@ -306,6 +457,117 @@ class SyncService extends ChangeNotifier {
     });
     notice = null;
     await _activate(st);
+  }
+
+  /// Server-Schlüssel eintragen, ändern oder (mit `null`) entfernen und
+  /// gleich neu verbinden.
+  Future<void> setServerKey(String? key) async {
+    if (!enabled) return;
+    await _enqueue(() => _store.exclusive(() async {
+          final st = await _loadState();
+          if (st == null) return;
+          st.serverKey = key;
+          await _saveState(st);
+        }));
+    if (!enabled) return;
+    serverKey = key;
+    _notify();
+    // Im Browser verbindet nur der Tab, der die Verbindung hält; er bemerkt
+    // die Änderung über den gemeinsamen Speicher.
+    if (_releaseLeader != null) _reconnectNow();
+  }
+
+  /// Prüft vor dem Einrichten, ob der Server diesen Zugang annimmt: Adresse,
+  /// Server-Schlüssel und – bei einem neuen Code – ob noch Platz ist.
+  static Future<SyncCheck> check({
+    required String url,
+    required String code,
+    String? serverKey,
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    const unreachable = SyncCheck(
+        message: 'Server nicht erreichbar', unreachable: true);
+    WebSocketChannel? ch;
+    StreamSubscription<dynamic>? sub;
+    try {
+      final crypto = await SyncCrypto.fromCode(code);
+      final channel = ch = WebSocketChannel.connect(wsUri(url));
+      await channel.ready.timeout(timeout);
+      final done = Completer<SyncCheck>();
+      void finish(SyncCheck r) {
+        if (!done.isCompleted) done.complete(r);
+      }
+
+      SyncCheck failed(int code, String message) {
+        final p = SyncProblem.ofCode(code);
+        return SyncCheck(
+            problem: p,
+            message: p == null || p == SyncProblem.quotaFull
+                ? (message.isEmpty ? 'Der Server hat abgelehnt' : message)
+                : p.text);
+      }
+
+      final login = ServerLogin(serverKey);
+      // Mit einer sehr großen Sequenznummer schickt der Server keine Daten,
+      // nur SYNCED – oder den Fehler.
+      void hello() =>
+          channel.sink.add(encodeHello(crypto.vaultId, _noCatchUpSeq));
+      SyncCheck? rejected;
+      sub = channel.stream.listen(
+        (msg) async {
+          final ServerMessage m;
+          try {
+            m = decodeServerMessage(_frameBytes(msg));
+          } on FormatException {
+            return;
+          }
+          switch (m) {
+            case ErrorMessage(:final code, :final message):
+              // Danach trennt der Server.
+              finish(rejected = failed(code, message));
+            case VaultDeletedMessage():
+              finish(const SyncCheck(
+                  message: 'Dieser Sync-Code wurde gelöscht und ist nicht '
+                      'mehr verwendbar.'));
+            case SyncedMessage() || ChangesMessage():
+              finish(const SyncCheck());
+            default:
+              final step = await login.handle(m, channel.sink.add);
+              if (step == 0) {
+                hello();
+              } else if (step != null) {
+                finish(failed(step, ''));
+              }
+          }
+        },
+        onDone: () => finish(rejected ?? unreachable),
+        onError: (Object _) => finish(unreachable),
+        cancelOnError: true,
+      );
+      final opening = login.opening;
+      if (opening != null) {
+        channel.sink.add(opening);
+      } else {
+        hello();
+      }
+      return await done.future.timeout(timeout, onTimeout: () => unreachable);
+    } catch (e) {
+      debugPrint('Sync-Prüfung fehlgeschlagen: $e');
+      return unreachable;
+    } finally {
+      await sub?.cancel();
+      unawaited(ch?.sink.close());
+    }
+  }
+
+  /// 2^52 (als Zahl, weil `<<` im Browser nur 32 Bit kennt).
+  static const _noCatchUpSeq = 4503599627370496;
+
+  static Uint8List _frameBytes(dynamic msg) {
+    if (msg is Uint8List) return msg;
+    if (msg is ByteBuffer) return msg.asUint8List();
+    if (msg is List<int>) return Uint8List.fromList(msg);
+    throw const FormatException('Keine Binärnachricht');
   }
 
   /// Sync auf diesem Gerät beenden. Mit [deleteRemote] werden zusätzlich alle
@@ -361,7 +623,15 @@ class SyncService extends ChangeNotifier {
   /// in einem anderen Tab ein-, aus- oder auf einen anderen Code umgestellt,
   /// zieht dieser Tab nach. Gibt `true` zurück, wenn der Sync aktiv ist.
   Future<bool> _followStoredState(SyncState? stored) async {
-    if (stored?.code == code) return stored != null;
+    if (stored?.code == code) {
+      // Server-Schlüssel in einem anderen Tab geändert: neu anmelden.
+      if (stored != null && stored.serverKey != serverKey) {
+        serverKey = stored.serverKey;
+        _notify();
+        if (_releaseLeader != null) _reconnectNow();
+      }
+      return stored != null;
+    }
     _stopLocal();
     if (stored == null) return false;
     await _activate(stored);
@@ -453,6 +723,7 @@ class SyncService extends ChangeNotifier {
   Future<void> _activate(SyncState st) async {
     url = st.url;
     code = st.code;
+    serverKey = st.serverKey;
     _crypto = await SyncCrypto.fromCode(st.code);
     _attempt = 0;
     _onlineLostAt = DateTime.now();
@@ -505,6 +776,7 @@ class SyncService extends ChangeNotifier {
     _joinRunning = null;
     url = null;
     code = null;
+    serverKey = null;
     _crypto = null;
     error = null;
     status = SyncStatus.off;
@@ -558,6 +830,7 @@ class SyncService extends ChangeNotifier {
       await ch.ready.timeout(const Duration(seconds: 15));
       if (gen != _generation) return;
       _lastRx = DateTime.now();
+      final login = _login = ServerLogin(serverKey);
       _sub = ch.stream.listen(
         (msg) => _onFrame(gen, msg),
         onDone: () => _onClosed(gen, _closeText(ch)),
@@ -574,12 +847,55 @@ class SyncService extends ChangeNotifier {
         await _followStoredState(st);
         return;
       }
-      ch.sink.add(encodeHello(_crypto!.vaultId, st.seq));
+      if (st.serverKey != serverKey) {
+        // In einem anderen Tab geändert: mit dem neuen Schlüssel anmelden.
+        serverKey = st.serverKey;
+        _reconnectNow();
+        return;
+      }
+      final opening = login.opening;
+      if (opening != null) ch.sink.add(opening);
+      _pendingHello = encodeHello(_crypto!.vaultId, st.seq);
+      _maybeHello();
       _lastCheck = DateTime.now();
       _pingTimer = Timer.periodic(_checkEvery, (_) => _checkAlive());
     } catch (e) {
       _onClosed(gen, e);
     }
+  }
+
+  /// Sendet HELLO, sobald der Stand geladen und die Anmeldung erledigt ist.
+  void _maybeHello() {
+    final hello = _pendingHello;
+    if (hello == null || _helloSent || !(_login?.ready ?? false)) return;
+    _helloSent = true;
+    _channel?.sink.add(hello);
+  }
+
+  /// CHALLENGE, AUTH_OK oder PONG während der Anmeldung.
+  void _onLogin(int gen, ServerMessage m) {
+    final login = _login;
+    if (login == null || login.ready) return;
+    login.handle(m, (frame) {
+      if (gen == _generation) _channel?.sink.add(frame);
+    }).then((step) {
+      if (gen != _generation || step == null) return;
+      if (step == 0) {
+        _maybeHello();
+      } else {
+        _rejected(gen, step);
+      }
+    }, onError: (Object e) {
+      debugPrint('Sync: Anmeldung fehlgeschlagen: $e');
+      if (gen == _generation) _rejected(gen, SyncErrorCode.authFailed);
+    });
+  }
+
+  /// Die App hat selbst festgestellt, dass dieser Server nicht passt.
+  void _rejected(int gen, int code) {
+    _serverErrorCode = code;
+    error = SyncProblem.ofCode(code)?.text;
+    _onClosed(gen, null);
   }
 
   static String _closeText(WebSocketChannel ch) {
@@ -658,6 +974,9 @@ class SyncService extends ChangeNotifier {
     _sub = null;
     _channel?.sink.close();
     _channel = null;
+    _login = null;
+    _pendingHello = null;
+    _helloSent = false;
     _live = false;
     _inflight = null;
   }
@@ -692,7 +1011,12 @@ class SyncService extends ChangeNotifier {
     switch (serverError) {
       case SyncErrorCode.unsupportedVersion ||
             SyncErrorCode.tooLarge ||
-            SyncErrorCode.quotaExceeded:
+            SyncErrorCode.quotaExceeded ||
+            SyncErrorCode.authRequired ||
+            SyncErrorCode.authFailed ||
+            SyncErrorCode.serverFull ||
+            SyncErrorCode.keyUnused ||
+            SyncErrorCode.serverUnverified:
         return _permanentRetry;
       case SyncErrorCode.badRequest ||
             SyncErrorCode.rateLimited ||
@@ -733,19 +1057,9 @@ class SyncService extends ChangeNotifier {
     if (gen != _generation) return;
     _lastRx = DateTime.now();
     _probeSentAt = null;
-    final Uint8List bytes;
-    if (msg is Uint8List) {
-      bytes = msg;
-    } else if (msg is ByteBuffer) {
-      bytes = msg.asUint8List();
-    } else if (msg is List<int>) {
-      bytes = Uint8List.fromList(msg);
-    } else {
-      return;
-    }
     final ServerMessage m;
     try {
-      m = decodeServerMessage(bytes);
+      m = decodeServerMessage(_frameBytes(msg));
     } on FormatException catch (e) {
       debugPrint('Sync: ungültige Nachricht: $e');
       return;
@@ -771,8 +1085,8 @@ class SyncService extends ChangeNotifier {
         _enqueue(() => _onSynced(gen, headSeq, epoch));
       case AckMessage(:final reqId, :final firstSeq):
         _enqueue(() => _onAck(gen, reqId, firstSeq));
-      case PongMessage():
-        break;
+      case PongMessage() || ChallengeMessage() || AuthOkMessage():
+        _onLogin(gen, m);
       case VaultDeletedMessage():
         // Sofort, nicht erst in der Warteschlange: Sonst verbindet der Retry
         // nach dem Trennen des Servers neu und bekommt die Meldung erneut.
@@ -781,7 +1095,9 @@ class SyncService extends ChangeNotifier {
         _enqueue(_onVaultDeleted);
       case ErrorMessage(:final code, :final message):
         _serverErrorCode = code;
-        error = message;
+        // Beim Speicherplatz sagt der Server genauer, was voll ist.
+        final p = SyncProblem.ofCode(code);
+        error = p == null || p == SyncProblem.quotaFull ? message : p.text;
         _notify();
     }
   }

@@ -9,11 +9,14 @@ class SyncOp {
   static const push = 0x02;
   static const deleteVault = 0x03;
   static const ping = 0x04;
+  static const auth = 0x05;
   static const changes = 0x81;
   static const synced = 0x82;
   static const ack = 0x83;
   static const pong = 0x84;
   static const vaultDeleted = 0x85;
+  static const challenge = 0x86;
+  static const authOk = 0x87;
   static const error = 0x8f;
 }
 
@@ -28,6 +31,23 @@ class SyncErrorCode {
   static const tooManyConnections = 5;
   static const internal = 6;
   static const quotaExceeded = 7;
+
+  /// Der Server verlangt eine Anmeldung mit dem Server-Schlüssel.
+  static const authRequired = 8;
+
+  /// Anmeldung abgelehnt: falscher Server-Schlüssel.
+  static const authFailed = 9;
+
+  /// Der Server hat die maximale Anzahl an Nutzern erreicht.
+  static const serverFull = 10;
+
+  // Vom Client selbst festgestellt (kommen nie vom Server):
+
+  /// Ein Server-Schlüssel ist eingetragen, der Server verwendet aber keinen.
+  static const keyUnused = -1;
+
+  /// Der Server konnte nicht nachweisen, dass er den privaten Schlüssel hat.
+  static const serverUnverified = -2;
 }
 
 class WireRecord {
@@ -74,6 +94,18 @@ class PongMessage extends ServerMessage {
 
 class VaultDeletedMessage extends ServerMessage {
   const VaultDeletedMessage();
+}
+
+/// Nur bei Servern mit Anmeldung, gleich nach dem Verbindungsaufbau.
+class ChallengeMessage extends ServerMessage {
+  const ChallengeMessage(this.nonce);
+  final Uint8List nonce;
+}
+
+/// Anmeldung angenommen; [proof] weist den Server aus.
+class AuthOkMessage extends ServerMessage {
+  const AuthOkMessage(this.proof);
+  final Uint8List proof;
 }
 
 class ErrorMessage extends ServerMessage {
@@ -138,6 +170,10 @@ ServerMessage decodeServerMessage(Uint8List buf) {
       return const PongMessage();
     case SyncOp.vaultDeleted:
       return const VaultDeletedMessage();
+    case SyncOp.challenge:
+      return ChallengeMessage(r.bytes(32));
+    case SyncOp.authOk:
+      return AuthOkMessage(r.bytes(32));
     case SyncOp.error:
       final code = r.u8();
       return ErrorMessage(
@@ -188,6 +224,12 @@ Uint8List encodePush(int reqId, List<WireRecord> records) {
   }
   return w.finish();
 }
+
+Uint8List encodeAuth(List<int> ephPub, List<int> mac) => (_Writer()
+      ..u8(SyncOp.auth)
+      ..bytes(ephPub)
+      ..bytes(mac))
+    .finish();
 
 final pingFrame = Uint8List.fromList([SyncOp.ping]);
 final deleteVaultFrame = Uint8List.fromList([SyncOp.deleteVault]);

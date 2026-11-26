@@ -152,11 +152,16 @@ class SyncState {
     this.seq = 0,
     this.clock = 0,
     this.epoch,
+    this.serverKey,
     Map<String, SyncEntry>? records,
   }) : records = records ?? {};
 
   final String url;
   final String code;
+
+  /// Server-Schlüssel, wenn der Server eine Anmeldung verlangt (siehe
+  /// `ServerKey`); sonst `null`.
+  String? serverKey;
 
   /// Höchste Sequenznummer des Servers, die vollständig übernommen ist.
   int seq;
@@ -304,6 +309,7 @@ class SyncState {
         'seq': seq,
         'clock': clock,
         if (epoch != null) 'epoch': epoch,
+        if (serverKey != null) 'serverKey': serverKey,
         'records': records.map((k, v) => MapEntry(k, v.toJson())),
       };
 
@@ -313,6 +319,7 @@ class SyncState {
         seq: (j['seq'] as num?)?.toInt() ?? 0,
         clock: (j['clock'] as num?)?.toInt() ?? 0,
         epoch: (j['epoch'] as num?)?.toInt(),
+        serverKey: j['serverKey'] as String?,
         records: (j['records'] as Map<String, dynamic>? ?? const {}).map(
             (k, v) => MapEntry(k, SyncEntry.fromJson(v as List<dynamic>))),
       );

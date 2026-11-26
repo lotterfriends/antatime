@@ -4,6 +4,13 @@
 //   SYNC_TEST_URL=http://127.0.0.1:18080 flutter test test/sync_integration_test.dart
 //
 // Ohne SYNC_TEST_URL wird der Test übersprungen.
+//
+// Server mit Anmeldung bzw. begrenzter Nutzerzahl (jeweils eigener Server):
+//
+//   SERVER_PRIVATE_KEY=… STORE=memory PORT=18081 npm run dev
+//     → SYNC_TEST_KEY_URL=http://127.0.0.1:18081 SYNC_TEST_SERVER_KEY=<Server-Schlüssel>
+//   MAX_VAULTS=1 STORE=memory PORT=18082 npm run dev
+//     → SYNC_TEST_FULL_URL=http://127.0.0.1:18082
 import 'dart:async';
 import 'dart:io';
 
@@ -479,4 +486,145 @@ void main() {
       d.sync.dispose();
     }
   }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
+  final keyUrl = Platform.environment['SYNC_TEST_KEY_URL'];
+  final serverKey =
+      ServerKey.normalize(Platform.environment['SYNC_TEST_SERVER_KEY'] ?? '');
+  final noKeyServer = keyUrl == null || serverKey == null
+      ? 'SYNC_TEST_KEY_URL/SYNC_TEST_SERVER_KEY nicht gesetzt'
+      : null;
+  // Gültig, gehört aber zu keinem Server.
+  final wrongKey = ServerKey.normalize('${'1' * 51}0')!;
+
+  test('Server mit Anmeldung: nur mit dem Server-Schlüssel', () async {
+    final a = FakeDevice('A');
+    final b = FakeDevice('B');
+    final code = SyncCrypto.generateCode();
+    await a.edit((d) => d.settings.weeklyHours = 30);
+
+    // Mit Schlüssel: anmelden und abgleichen wie sonst auch.
+    await a.sync.enable(
+        url: keyUrl!, code: code, join: false, serverKey: serverKey);
+    await waitFor(() => a.sync.status == SyncStatus.online, reason: 'A online');
+    expect(a.sync.problem, isNull);
+
+    // Ohne Schlüssel: deutliche Meldung statt „Offline“.
+    await b.sync.enable(url: keyUrl, code: code, join: true);
+    await waitFor(() => b.sync.problem == SyncProblem.keyRequired,
+        reason: 'B braucht den Schlüssel');
+    expect(b.sync.displayStatus, SyncStatus.offline);
+    expect(b.sync.error, SyncProblem.keyRequired.text);
+
+    // Falscher Schlüssel.
+    await b.sync.setServerKey(wrongKey);
+    await waitFor(() => b.sync.problem == SyncProblem.keyWrong,
+        reason: 'B hat den falschen Schlüssel');
+
+    // Richtiger Schlüssel nachgetragen: verbindet sofort und gleicht ab.
+    await b.sync.setServerKey(serverKey);
+    await waitFor(() => b.sync.status == SyncStatus.online, reason: 'B online');
+    expect(b.sync.problem, isNull);
+    expect(b.sync.error, isNull);
+    await waitFor(() => b.data.settings.weeklyHours == 30, reason: 'B hat Daten');
+
+    // Der Schlüssel übersteht den Neustart der App.
+    b.sync.dispose();
+    final b2 = FakeDevice('B neu', b.storage);
+    await b2.sync.start();
+    expect(b2.sync.serverKey, serverKey);
+    await waitFor(() => b2.sync.status == SyncStatus.online, reason: 'B2 online');
+
+    for (final d in [a, b2]) {
+      d.sync.dispose();
+    }
+  }, skip: noKeyServer);
+
+  test('Prüfung vor dem Einrichten: Schlüssel', () async {
+    final code = SyncCrypto.generateCode();
+    final ok = await SyncService.check(
+        url: keyUrl!, code: code, serverKey: serverKey);
+    expect(ok.ok, isTrue, reason: ok.message);
+    final none = await SyncService.check(url: keyUrl, code: code);
+    expect(none.problem, SyncProblem.keyRequired);
+    expect(none.message, SyncProblem.keyRequired.text);
+    final wrong = await SyncService.check(
+        url: keyUrl, code: code, serverKey: wrongKey);
+    expect(wrong.problem, SyncProblem.keyWrong);
+    expect(wrong.unreachable, isFalse);
+  }, skip: noKeyServer);
+
+  test('Server ohne Anmeldung: eingetragener Schlüssel fällt auf', () async {
+    final code = SyncCrypto.generateCode();
+    final check =
+        await SyncService.check(url: url!, code: code, serverKey: wrongKey);
+    expect(check.problem, SyncProblem.keyUnused);
+    expect((await SyncService.check(url: url, code: code)).ok, isTrue);
+
+    final a = FakeDevice('A');
+    await a.sync.enable(url: url, code: code, join: false, serverKey: wrongKey);
+    await waitFor(() => a.sync.problem == SyncProblem.keyUnused,
+        reason: 'Schlüssel unnötig');
+    // Schlüssel entfernt: verbindet.
+    await a.sync.setServerKey(null);
+    await waitFor(() => a.sync.status == SyncStatus.online, reason: 'A online');
+    a.sync.dispose();
+  }, skip: url == null ? 'SYNC_TEST_URL nicht gesetzt' : null);
+
+  test('Nicht erreichbarer Server wird als solcher gemeldet', () async {
+    final check = await SyncService.check(
+        url: 'http://127.0.0.1:9',
+        code: SyncCrypto.generateCode(),
+        timeout: const Duration(seconds: 3));
+    expect(check.ok, isFalse);
+    expect(check.unreachable, isTrue);
+    expect(check.problem, isNull);
+  });
+
+  final fullUrl = Platform.environment['SYNC_TEST_FULL_URL'];
+
+  test('Voller Server (MAX_VAULTS=1): neue Codes werden abgewiesen', () async {
+    final a = FakeDevice('A');
+    final a2 = FakeDevice('A2');
+    final b = FakeDevice('B');
+    final code = SyncCrypto.generateCode();
+    await a.edit((d) => d.settings.weeklyHours = 35);
+
+    // Der erste Nutzer belegt den einzigen Platz.
+    expect((await SyncService.check(url: fullUrl!, code: code)).ok, isTrue);
+    await a.sync.enable(url: fullUrl, code: code, join: false);
+    await waitFor(() => a.sync.status == SyncStatus.online, reason: 'A online');
+
+    // Ein zweiter Nutzer erfährt schon vor dem Einrichten, dass kein Platz
+    // ist (sobald die Daten des ersten auf dem Server liegen) …
+    final other = SyncCrypto.generateCode();
+    var check = await SyncService.check(url: fullUrl, code: other);
+    for (var i = 0; i < 100 && check.ok; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      check = await SyncService.check(url: fullUrl, code: other);
+    }
+    expect(check.problem, SyncProblem.serverFull);
+    expect(check.message, SyncProblem.serverFull.text);
+
+    // … und richtet er trotzdem ein, steht es deutlich in den Einstellungen.
+    await b.edit((d) => d.settings.weeklyHours = 20);
+    await b.sync.enable(url: fullUrl, code: other, join: false);
+    await waitFor(() => b.sync.problem == SyncProblem.serverFull,
+        reason: 'B abgewiesen');
+    expect(b.sync.displayStatus, SyncStatus.offline);
+    expect(b.sync.error, SyncProblem.serverFull.text);
+    expect(b.data.settings.weeklyHours, 20, reason: 'Daten bleiben lokal');
+
+    // Weitere Geräte des ersten Nutzers kommen weiter herein.
+    expect((await SyncService.check(url: fullUrl, code: code)).ok, isTrue);
+    await a2.sync.enable(url: fullUrl, code: code, join: true);
+    await waitFor(() => a2.data.settings.weeklyHours == 35, reason: 'A2 hat Daten');
+
+    // Gibt der erste Nutzer seinen Platz frei, kann der zweite verbinden.
+    expect(await a.sync.disable(deleteRemote: true), isTrue);
+    expect((await SyncService.check(url: fullUrl, code: other)).ok, isTrue);
+
+    for (final d in [a, a2, b]) {
+      d.sync.dispose();
+    }
+  }, skip: fullUrl == null ? 'SYNC_TEST_FULL_URL nicht gesetzt' : null);
 }

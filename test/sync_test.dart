@@ -120,6 +120,19 @@ void main() {
           throwsFormatException);
     });
 
+    test('Anmeldung: CHALLENGE, AUTH_OK und AUTH', () {
+      final challenge = decodeServerMessage(
+          Uint8List.fromList([0x86, ...List.filled(32, 4)]));
+      expect((challenge as ChallengeMessage).nonce, List.filled(32, 4));
+      final ok = decodeServerMessage(
+          Uint8List.fromList([0x87, ...List.filled(32, 6)]));
+      expect((ok as AuthOkMessage).proof, List.filled(32, 6));
+      expect(() => decodeServerMessage(Uint8List.fromList([0x86, 1])),
+          throwsFormatException);
+      expect(encodeAuth(List.filled(32, 1), List.filled(32, 2)),
+          [5, ...List.filled(32, 1), ...List.filled(32, 2)]);
+    });
+
     test('Server-Adresse wird zur WebSocket-URL', () {
       expect(SyncService.wsUri('sync.example.org').toString(),
           'wss://sync.example.org/sync');
@@ -128,6 +141,128 @@ void main() {
       expect(SyncService.wsUri('https://x.de/antatime/').toString(),
           'wss://x.de/antatime/sync');
       expect(SyncService.wsUri('wss://x.de/sync').toString(), 'wss://x.de/sync');
+    });
+  });
+
+  group('Server-Schlüssel', () {
+    // Beispiel aus `antatime-server keygen`.
+    const key = '4YYX7TWYW339S6CHBMJNKB2NCSBXK7WC3ZGQ639QCZ43K2Y2WGS0';
+
+    test('wird tolerant gelesen und gut lesbar angezeigt', () {
+      expect(key, hasLength(ServerKey.textLength));
+      final formatted = ServerKey.format(key);
+      expect(formatted.split('-'), hasLength(13));
+      expect(ServerKey.normalize(' ${formatted.toLowerCase()} '), key);
+      expect(ServerKey.normalize('o' * 52), '0' * 52);
+      expect(ServerKey.normalize(key.substring(1)), isNull);
+      expect(ServerKey.normalize('U' * 52), isNull);
+      // Die letzten 4 Bit müssen 0 sein.
+      expect(ServerKey.normalize('${'0' * 51}1'), isNull);
+    });
+
+    test('bleibt im Sync-Zustand erhalten und ist optional', () {
+      final st = SyncState(url: 'x', code: 'A' * 25, serverKey: key);
+      final back = SyncState.fromJson(
+          jsonDecode(jsonEncode(st.toJson())) as Map<String, dynamic>);
+      expect(back.serverKey, key);
+      final plain = SyncState(url: 'x', code: 'A' * 25);
+      expect(plain.toJson().containsKey('serverKey'), isFalse);
+      expect(SyncState.fromJson(plain.toJson()).serverKey, isNull);
+    });
+
+    /// Server-Seite der Anmeldung (wie antatime-server/src/auth.ts).
+    Future<({List<int> mac, List<int> proof})> serverSide(
+        SimpleKeyPair server,
+        List<int> serverPub,
+        List<int> nonce,
+        List<int> ephPub) async {
+      final shared = await X25519().sharedSecretKey(
+          keyPair: server,
+          remotePublicKey: SimplePublicKey(ephPub, type: KeyPairType.x25519));
+      final k = await Hkdf(hmac: Hmac.sha256(), outputLength: 32).deriveKey(
+          secretKey: shared,
+          nonce: utf8.encode('antatime-auth-v1'),
+          info: [...nonce, ...ephPub, ...serverPub]);
+      Future<List<int>> mac(String role) async => (await Hmac.sha256()
+              .calculateMac([...utf8.encode(role), ...nonce], secretKey: k))
+          .bytes;
+      return (mac: await mac('client'), proof: await mac('server'));
+    }
+
+    String encode(List<int> bytes) {
+      const alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+      final bits = bytes.map((b) => b.toRadixString(2).padLeft(8, '0')).join();
+      final padded = bits.padRight(260, '0');
+      return [
+        for (var i = 0; i < 260; i += 5)
+          alphabet[int.parse(padded.substring(i, i + 5), radix: 2)]
+      ].join();
+    }
+
+    test('Anmeldung: Antwort passt zum Server, Server weist sich aus',
+        () async {
+      final server = await X25519().newKeyPair();
+      final serverPub = (await server.extractPublicKey()).bytes;
+      final serverKey = ServerKey.normalize(encode(serverPub))!;
+      final nonce = Uint8List.fromList(List.generate(32, (i) => i));
+
+      final login = ServerLogin(serverKey);
+      expect(login.ready, isFalse);
+      expect(login.opening, pingFrame);
+      final sent = <Uint8List>[];
+      expect(await login.handle(ChallengeMessage(nonce), sent.add), isNull);
+      final auth = sent.single;
+      expect(auth, hasLength(65));
+      expect(auth[0], SyncOp.auth);
+      final expected = await serverSide(
+          server, serverPub, nonce, auth.sublist(1, 33));
+      expect(auth.sublist(33), expected.mac);
+      // Das PONG auf das eröffnende PING kommt nach der CHALLENGE: kein Fehler.
+      expect(await login.handle(const PongMessage(), sent.add), isNull);
+      expect(
+          await login.handle(
+              AuthOkMessage(Uint8List.fromList(expected.proof)), sent.add),
+          0);
+      expect(login.ready, isTrue);
+      expect(sent, hasLength(1));
+    });
+
+    test('Anmeldung: falscher Server und Server ohne Schlüssel fallen auf',
+        () async {
+      final login = ServerLogin(key);
+      final sent = <Uint8List>[];
+      await login.handle(ChallengeMessage(Uint8List(32)), sent.add);
+      // Ein Server ohne den privaten Schlüssel kann den Nachweis nicht liefern.
+      expect(await login.handle(AuthOkMessage(Uint8List(32)), sent.add),
+          SyncErrorCode.serverUnverified);
+      expect(login.ready, isFalse);
+
+      // PONG ohne vorherige CHALLENGE: Der Server kennt keine Anmeldung.
+      expect(await ServerLogin(key).handle(const PongMessage(), sent.add),
+          SyncErrorCode.keyUnused);
+
+      // Ohne Schlüssel gibt es nichts anzumelden.
+      final open = ServerLogin(null);
+      expect(open.ready, isTrue);
+      expect(open.opening, isNull);
+      expect(await open.handle(ChallengeMessage(Uint8List(32)), sent.add),
+          isNull);
+    });
+
+    test('Absagen des Servers werden zu verständlichen Meldungen', () {
+      expect(SyncProblem.ofCode(SyncErrorCode.serverFull),
+          SyncProblem.serverFull);
+      expect(SyncProblem.ofCode(SyncErrorCode.authRequired),
+          SyncProblem.keyRequired);
+      expect(SyncProblem.ofCode(SyncErrorCode.authFailed), SyncProblem.keyWrong);
+      expect(SyncProblem.ofCode(SyncErrorCode.rateLimited), isNull);
+      expect(SyncProblem.ofCode(null), isNull);
+      expect(SyncProblem.serverFull.isKey, isFalse);
+      expect(SyncProblem.keyWrong.isKey, isTrue);
+      for (final p in SyncProblem.values) {
+        expect(p.title, isNotEmpty);
+        expect(p.text, isNotEmpty);
+      }
     });
   });
 
@@ -568,6 +703,10 @@ void main() {
       // Dauerhafte Fehler: nicht im Sekundentakt wiederholen.
       expect(d(0, SyncErrorCode.quotaExceeded), const Duration(minutes: 5));
       expect(d(0, SyncErrorCode.unsupportedVersion), const Duration(minutes: 5));
+      expect(d(0, SyncErrorCode.serverFull), const Duration(minutes: 5));
+      expect(d(0, SyncErrorCode.authRequired), const Duration(minutes: 5));
+      expect(d(0, SyncErrorCode.authFailed), const Duration(minutes: 5));
+      expect(d(0, SyncErrorCode.keyUnused), const Duration(minutes: 5));
       expect(d(0, SyncErrorCode.rateLimited), const Duration(minutes: 1));
       // Server lehnt den Verbindungsaufbau wegen Limits ab:
       expect(d(0, null, 'HTTP status code: 429'), const Duration(minutes: 1));

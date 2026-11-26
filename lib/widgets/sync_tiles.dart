@@ -39,16 +39,30 @@ class SyncTiles extends StatelessWidget {
                 onTap: () => _setup(context, sync),
               )
             else ...[
-              ListTile(
-                leading: Icon(_statusIcon(sync.displayStatus)),
-                title: Text(_statusText(sync.displayStatus)),
-                subtitle: Text([
-                  SyncService.wsUri(sync.url!).host,
-                  if (sync.displayStatus == SyncStatus.offline &&
-                      sync.error != null)
-                    sync.error!,
-                ].join(' · ')),
-              ),
+              if (sync.problem case final problem?)
+                ListTile(
+                  leading: Icon(Icons.error_outline,
+                      color: Theme.of(context).colorScheme.error),
+                  title: Text(problem.title),
+                  subtitle: Text([
+                    SyncService.wsUri(sync.url!).host,
+                    sync.error ?? problem.text,
+                  ].join(' · ')),
+                  onTap: problem.isKey
+                      ? () => _editServerKey(context, sync)
+                      : null,
+                )
+              else
+                ListTile(
+                  leading: Icon(_statusIcon(sync.displayStatus)),
+                  title: Text(_statusText(sync.displayStatus)),
+                  subtitle: Text([
+                    SyncService.wsUri(sync.url!).host,
+                    if (sync.displayStatus == SyncStatus.offline &&
+                        sync.error != null)
+                      sync.error!,
+                  ].join(' · ')),
+                ),
               if (sync.clockWarning != null)
                 ListTile(
                   leading: const Icon(Icons.schedule),
@@ -60,6 +74,15 @@ class SyncTiles extends StatelessWidget {
                 title: const Text('Sync-Code anzeigen'),
                 subtitle: const Text('Zum Einrichten weiterer Geräte'),
                 onTap: () => _showCode(context, sync.code!),
+              ),
+              ListTile(
+                leading: const Icon(Icons.vpn_key_outlined),
+                title: const Text('Server-Schlüssel'),
+                subtitle: Text(sync.serverKey == null
+                    ? 'Nicht eingetragen – nur nötig, wenn der Server eine '
+                        'Anmeldung verlangt'
+                    : 'Eingetragen'),
+                onTap: () => _editServerKey(context, sync),
               ),
               if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
                 const _BackgroundSyncTile(),
@@ -95,7 +118,11 @@ class SyncTiles extends StatelessWidget {
       builder: (_) => const _SetupDialog(),
     );
     if (result == null) return;
-    await sync.enable(url: result.url, code: result.code, join: result.join);
+    await sync.enable(
+        url: result.url,
+        code: result.code,
+        join: result.join,
+        serverKey: result.serverKey);
     if (!result.join && context.mounted) {
       await _showCode(context, result.code, created: true);
     }
@@ -151,6 +178,17 @@ class SyncTiles extends StatelessWidget {
     );
   }
 
+  /// Server-Schlüssel eintragen, ändern oder entfernen.
+  static Future<void> _editServerKey(
+      BuildContext context, SyncService sync) async {
+    final result = await showDialog<_ServerKeyResult>(
+      context: context,
+      builder: (_) => _ServerKeyDialog(current: sync.serverKey),
+    );
+    if (result == null) return;
+    await sync.setServerKey(result.key);
+  }
+
   Future<void> _disable(BuildContext context, SyncService sync) async {
     final messenger = ScaffoldMessenger.of(context);
     final choice = await showDialog<bool>(
@@ -185,10 +223,97 @@ class SyncTiles extends StatelessWidget {
 }
 
 class _SetupResult {
-  const _SetupResult(this.url, this.code, this.join);
+  const _SetupResult(this.url, this.code, this.join, this.serverKey);
   final String url;
   final String code;
   final bool join;
+  final String? serverKey;
+}
+
+const _serverKeyHint = 'XXXX-XXXX-XXXX-…';
+const _serverKeyLengthError =
+    'Der Server-Schlüssel hat ${ServerKey.textLength} Zeichen';
+
+/// `key == null`: Schlüssel entfernen.
+class _ServerKeyResult {
+  const _ServerKeyResult(this.key);
+  final String? key;
+}
+
+class _ServerKeyDialog extends StatefulWidget {
+  const _ServerKeyDialog({this.current});
+  final String? current;
+
+  @override
+  State<_ServerKeyDialog> createState() => _ServerKeyDialogState();
+}
+
+class _ServerKeyDialogState extends State<_ServerKeyDialog> {
+  late final _key = TextEditingController(
+      text: widget.current == null ? '' : ServerKey.format(widget.current!));
+  String? _error;
+
+  @override
+  void dispose() {
+    _key.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final key = ServerKey.normalize(_key.text);
+    if (key == null) {
+      setState(() => _error = _serverKeyLengthError);
+      return;
+    }
+    Navigator.pop(context, _ServerKeyResult(key));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Server-Schlüssel'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+                'Manche Server nehmen nur Geräte an, die den Schlüssel des '
+                'Servers kennen. Du bekommst ihn vom Betreiber. Er gilt nur '
+                'für dieses Gerät und wird nicht synchronisiert.'),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _key,
+              autofocus: true,
+              autocorrect: false,
+              minLines: 1,
+              maxLines: 3,
+              // Mehrzeilig nur zur Anzeige: Enter bestätigt.
+              textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                labelText: 'Server-Schlüssel',
+                hintText: _serverKeyHint,
+                errorText: _error,
+              ),
+              onSubmitted: (_) => _submit(),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Abbrechen')),
+        if (widget.current != null)
+          TextButton(
+              onPressed: () =>
+                  Navigator.pop(context, const _ServerKeyResult(null)),
+              child: const Text('Entfernen')),
+        FilledButton(onPressed: _submit, child: const Text('Speichern')),
+      ],
+    );
+  }
 }
 
 class _SetupDialog extends StatefulWidget {
@@ -201,18 +326,32 @@ class _SetupDialog extends StatefulWidget {
 class _SetupDialogState extends State<_SetupDialog> {
   final _url = TextEditingController(text: SyncService.suggestedUrl);
   final _code = TextEditingController();
+  final _key = TextEditingController();
   bool _join = false;
   String? _urlError;
   String? _codeError;
+  String? _keyError;
+
+  /// Meldung des Servers, die zu keinem Feld gehört (z. B. „Server ist voll“).
+  String? _serverError;
+
+  /// Die Verbindung wird gerade geprüft.
+  bool _checking = false;
+
+  /// Für diese Eingaben war der Server nicht erreichbar: Ein zweiter Versuch
+  /// richtet trotzdem ein (der Abgleich beginnt dann später).
+  String? _unreachableFor;
 
   @override
   void dispose() {
     _url.dispose();
     _code.dispose();
+    _key.dispose();
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_checking) return;
     final url = _url.text.trim();
     String? urlError;
     if (url.isEmpty) {
@@ -237,12 +376,51 @@ class _SetupDialogState extends State<_SetupDialog> {
     } else {
       code = SyncCrypto.generateCode();
     }
+    String? serverKey;
+    String? keyError;
+    if (_key.text.trim().isNotEmpty) {
+      serverKey = ServerKey.normalize(_key.text);
+      if (serverKey == null) keyError = _serverKeyLengthError;
+    }
     setState(() {
       _urlError = urlError;
       _codeError = codeError;
+      _keyError = keyError;
+      _serverError = null;
     });
-    if (urlError != null || codeError != null) return;
-    Navigator.pop(context, _SetupResult(url, code!, _join));
+    if (urlError != null || codeError != null || keyError != null) return;
+    final result = _SetupResult(url, code!, _join, serverKey);
+
+    // Vor dem Einrichten fragen, ob der Server diesen Zugang annimmt – sonst
+    // stünde die Absage (Server voll, Schlüssel) erst später in den
+    // Einstellungen.
+    final attempt = '$url|${_join ? code : ''}|$serverKey';
+    if (_unreachableFor == attempt) {
+      Navigator.pop(context, result);
+      return;
+    }
+    setState(() => _checking = true);
+    final check =
+        await SyncService.check(url: url, code: code, serverKey: serverKey);
+    if (!mounted) return;
+    if (check.ok) {
+      Navigator.pop(context, result);
+      return;
+    }
+    setState(() {
+      _checking = false;
+      if (check.unreachable) {
+        _unreachableFor = attempt;
+        _serverError = 'Der Server ist nicht erreichbar. Bitte die Adresse '
+            'prüfen – oder erneut auf „Verbinden“ tippen, um trotzdem '
+            'einzurichten. Der Abgleich beginnt dann, sobald der Server '
+            'erreichbar ist.';
+      } else if (check.problem?.isKey ?? false) {
+        _keyError = check.message;
+      } else {
+        _serverError = check.message;
+      }
+    });
   }
 
   @override
@@ -268,6 +446,26 @@ class _SetupDialogState extends State<_SetupDialog> {
                 hintText: 'z. B. sync.example.org',
                 errorText: _urlError,
               ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _key,
+              autocorrect: false,
+              minLines: 1,
+              maxLines: 3,
+              // Mehrzeilig nur zur Anzeige: Enter bestätigt.
+              textInputAction: TextInputAction.done,
+              textCapitalization: TextCapitalization.characters,
+              decoration: InputDecoration(
+                labelText: 'Server-Schlüssel (optional)',
+                hintText: _serverKeyHint,
+                helperText: 'Nur nötig, wenn der Server eine Anmeldung '
+                    'verlangt',
+                helperMaxLines: 2,
+                errorText: _keyError,
+                errorMaxLines: 4,
+              ),
+              onSubmitted: (_) => _submit(),
             ),
             const SizedBox(height: 16),
             SegmentedButton<bool>(
@@ -303,6 +501,24 @@ class _SetupDialogState extends State<_SetupDialog> {
                 'werden hochgeladen.',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
+            if (_serverError != null) ...[
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.error_outline,
+                      size: 20, color: Theme.of(context).colorScheme.error),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _serverError!,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.error),
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ],
         ),
       ),
@@ -310,7 +526,10 @@ class _SetupDialogState extends State<_SetupDialog> {
         TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Abbrechen')),
-        FilledButton(onPressed: _submit, child: const Text('Verbinden')),
+        FilledButton(
+          onPressed: _checking ? null : _submit,
+          child: Text(_checking ? 'Prüfe …' : 'Verbinden'),
+        ),
       ],
     );
   }

@@ -99,3 +99,85 @@ class SyncCrypto {
     return _aes.decrypt(box, secretKey: _encKey, aad: aad);
   }
 }
+
+/// Server-Schlüssel für Server mit Anmeldung (`SERVER_PRIVATE_KEY`) –
+/// Gegenstück zu antatime-server/src/auth.ts.
+///
+/// Der Betreiber gibt den Schlüssel (öffentlicher X25519-Schlüssel, 52 Zeichen
+/// Base32) an seine Nutzer weiter. Nur wer ihn kennt, kann sich anmelden; er
+/// wird dabei nie übertragen. Umgekehrt weist sich der Server damit aus.
+class ServerKey {
+  static const textLength = 52;
+  static const _alphabet = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  static final _salt = utf8.encode('antatime-auth-v1');
+  static final _x25519 = X25519();
+  static final _hmac = Hmac.sha256();
+
+  /// Normalisiert eine Eingabe wie beim Sync-Code. `null`, wenn es kein
+  /// gültiger Schlüssel ist.
+  static String? normalize(String input) {
+    final s = input
+        .toUpperCase()
+        .replaceAll(RegExp(r'[\s\-_.]'), '')
+        .replaceAll('O', '0')
+        .replaceAll(RegExp('[IL]'), '1');
+    return _decode(s) == null ? null : s;
+  }
+
+  /// Gut lesbar in Vierergruppen.
+  static String format(String key) => [
+        for (var i = 0; i < key.length; i += 4)
+          key.substring(i, min(i + 4, key.length))
+      ].join('-');
+
+  static Uint8List? _decode(String s) {
+    if (s.length != textLength) return null;
+    final out = Uint8List(32);
+    var acc = 0, bits = 0, pos = 0;
+    for (final c in s.codeUnits) {
+      final v = _alphabet.codeUnits.indexOf(c);
+      if (v < 0) return null;
+      acc = (acc << 5) | v;
+      bits += 5;
+      if (bits >= 8) {
+        bits -= 8;
+        if (pos < out.length) out[pos++] = (acc >> bits) & 0xff;
+        acc &= (1 << bits) - 1;
+      }
+    }
+    // Die überzähligen Bits müssen 0 sein.
+    return acc == 0 ? out : null;
+  }
+
+  /// Antwort auf die CHALLENGE [nonce] des Servers: die Felder für AUTH und
+  /// der Nachweis, den der Server in AUTH_OK liefern muss.
+  static Future<({List<int> ephPub, List<int> mac, List<int> proof})> answer(
+      String key, List<int> nonce) async {
+    final serverPub = _decode(key);
+    if (serverPub == null) throw const FormatException('Server-Schlüssel');
+    final eph = await _x25519.newKeyPair();
+    final ephPub = (await eph.extractPublicKey()).bytes;
+    final shared = await _x25519.sharedSecretKey(
+        keyPair: eph,
+        remotePublicKey: SimplePublicKey(serverPub, type: KeyPairType.x25519));
+    final k = await Hkdf(hmac: _hmac, outputLength: 32).deriveKey(
+        secretKey: shared,
+        nonce: _salt,
+        info: [...nonce, ...ephPub, ...serverPub]);
+    Future<List<int>> mac(String role) async =>
+        (await _hmac.calculateMac([...utf8.encode(role), ...nonce],
+                secretKey: k))
+            .bytes;
+    return (ephPub: ephPub, mac: await mac('client'), proof: await mac('server'));
+  }
+
+  /// Vergleich ohne vorzeitigen Abbruch.
+  static bool sameBytes(List<int> a, List<int> b) {
+    if (a.length != b.length) return false;
+    var diff = 0;
+    for (var i = 0; i < a.length; i++) {
+      diff |= a[i] ^ b[i];
+    }
+    return diff == 0;
+  }
+}
