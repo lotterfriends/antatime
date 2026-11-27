@@ -293,6 +293,11 @@ def desktop(glyph):
 
 # --- Statusleisten-Icons (Vector Drawables, weiß) ---------------------------
 
+# Standard ist das stehende Symbol: Ein animiertes lässt die Systemoberfläche
+# dauerhaft neu zeichnen (gemessen: 30 Bilder/s, rund ein halber CPU-Kern),
+# solange die Zeit läuft und der Bildschirm an ist. Die Animation gibt es
+# deshalb nur auf Wunsch (Einstellung „Animiertes Symbol“).
+#
 # Flüssige Drehung: ~30 Bilder/s, 2,67° pro Bild. 33 ms entsprechen genau
 # 2 Bildwechseln bei 60 Hz bzw. 4 bei 120 Hz, dadurch gleichmäßige Schritte.
 FRAMES = 135
@@ -341,14 +346,18 @@ def status_icons():
     for name in os.listdir(d):
         if name.startswith('ic_stat_running_'):
             os.remove(os.path.join(d, name))
+    # Stehend (Standard): das erste Bild der Drehung.
+    with open(f'{d}/ic_stat_running.xml', 'w') as f:
+        f.write(vector(CLOCK + ARROW.format(rot='0')))
+    # Animiert (nur auf Wunsch): der äußere Pfeil dreht sich um die Uhr.
     items = []
     for i in range(FRAMES):
         rot = round(i * 360 / FRAMES, 3)
-        with open(f'{d}/ic_stat_running_{i:03d}.xml', 'w') as f:
+        with open(f'{d}/ic_stat_running_anim_{i:03d}.xml', 'w') as f:
             f.write(vector(CLOCK + ARROW.format(rot=f'{rot:g}')))
-        items.append(f'    <item android:drawable="@drawable/ic_stat_running_{i:03d}" '
+        items.append(f'    <item android:drawable="@drawable/ic_stat_running_anim_{i:03d}" '
                      f'android:duration="{FRAME_MS}"/>')
-    with open(f'{d}/ic_stat_running.xml', 'w') as f:
+    with open(f'{d}/ic_stat_running_anim.xml', 'w') as f:
         f.write('<?xml version="1.0" encoding="utf-8"?>\n'
                 '<!-- Generiert von scripts/generate_icons.py: der äußere Pfeil '
                 'dreht sich langsam um die Uhr -->\n'
@@ -361,8 +370,8 @@ def status_icons():
 
 
 # --- Tray-Symbole (Desktop) ---------------------------------------------------
-# Statisch, ohne Animation: laufend = Uhr mit Pfeil (erstes Bild der Android-
-# Animation), pausiert = Stoppuhr mit Pause-Balken.
+# Statisch, ohne Animation: laufend = Uhr mit Pfeil (wie das Android-
+# Symbol), pausiert = Stoppuhr mit Pause-Balken.
 # Linux/Windows: weißes Symbol auf farbigem Grund (auf hellen und dunklen
 # Leisten lesbar), laufend Akzentfarbe, pausiert grau. macOS: schwarzes
 # Template-Symbol, das sich der Menüleiste anpasst.

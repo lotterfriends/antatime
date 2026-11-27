@@ -367,6 +367,7 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> loadDeviceSettings() async {
     trayIconStyle = await _repo.loadTrayIconStyle();
     backgroundSync = await _repo.loadBackgroundSync();
+    animatedStatusIcon = await _repo.loadAnimatedStatusIcon();
     _deviceSettingsLoaded = true;
     await _updateBackgroundSync();
   }
@@ -384,6 +385,19 @@ class AppState extends ChangeNotifier with WidgetsBindingObserver {
     await _repo.saveBackgroundSync(enabled);
     notifyListeners();
     await _updateBackgroundSync();
+  }
+
+  /// Drehendes Symbol in der Statusleiste, solange die Zeit läuft (nur
+  /// dieses Gerät, Android; Standard: aus). Die Animation lässt Android die
+  /// Statusleiste dauerhaft neu zeichnen und kostet spürbar Leistung und Akku.
+  bool animatedStatusIcon = false;
+
+  Future<void> setAnimatedStatusIcon(bool enabled) async {
+    animatedStatusIcon = enabled;
+    await _repo.saveAnimatedStatusIcon(enabled);
+    notifyListeners();
+    // Die native Benachrichtigung liest die Einstellung beim Aktualisieren.
+    await _syncNotification();
   }
 
   Future<void> _updateBackgroundSync() async {

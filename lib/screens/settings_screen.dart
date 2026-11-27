@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -304,6 +305,18 @@ class SettingsScreen extends StatelessWidget {
               onChanged: (v) =>
                   _updateSettings(context, (x) => x.showNotification = v),
             ),
+            if (s.showNotification &&
+                defaultTargetPlatform == TargetPlatform.android)
+              SwitchListTile(
+                secondary: const Icon(Icons.autorenew),
+                title: const Text('Animiertes Symbol'),
+                subtitle: const Text('Solange die Zeit läuft, dreht sich in '
+                    'der Statusleiste ein Pfeil um die Uhr. Das Gerät zeichnet '
+                    'die Statusleiste dann ständig neu – das kostet spürbar '
+                    'Leistung und Akku.'),
+                value: state.animatedStatusIcon,
+                onChanged: state.setAnimatedStatusIcon,
+              ),
             SwitchListTile(
               secondary: const Icon(Icons.alarm),
               title: const Text('Erinnerung zum Start'),

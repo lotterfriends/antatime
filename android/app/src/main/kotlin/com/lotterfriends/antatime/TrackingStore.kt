@@ -25,6 +25,7 @@ class TrackingStore(context: Context) {
         private const val KEY_SESSIONS = "sessions"
         private const val KEY_SETTINGS = "settings"
         const val KEY_STOPPED_DAY = "notificationStoppedDay"
+        private const val KEY_ANIMATED_ICON = "animatedStatusIcon"
 
         /**
          * Wann eine Arbeitszeit hier (nativ) geändert wurde: `{id: ms}`. Der
@@ -154,6 +155,13 @@ class TrackingStore(context: Context) {
         } catch (e: Exception) {
             true
         }
+
+    /**
+     * Drehendes Symbol in der Statusleiste gewünscht (Einstellung „Animiertes
+     * Symbol“, Standard: aus – die Animation lässt die Systemoberfläche
+     * dauerhaft neu zeichnen).
+     */
+    fun animatedIcon(): Boolean = prefs.getString(KEY_ANIMATED_ICON, null) == "on"
 
     /** „Feierabend“ wurde heute gedrückt → Benachrichtigung bis zum nächsten Start ausblenden. */
     fun stoppedToday(): Boolean =

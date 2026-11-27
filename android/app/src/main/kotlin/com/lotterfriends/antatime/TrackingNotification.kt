@@ -19,7 +19,8 @@ import java.time.Instant
 
 /**
  * Steuer-Benachrichtigung mit eigenem Layout:
- * - laufend: drehendes Uhr-Symbol in der Statusleiste, „Derzeit“ und „Heute“ als Live-Uhr
+ * - laufend: Uhr-Symbol mit Pfeil in der Statusleiste (auf Wunsch drehend, siehe
+ *   [TrackingStore.animatedIcon]), „Derzeit“ und „Heute“ als Live-Uhr
  * - pausiert: Stoppuhr mit Pause-Symbol, Pausendauer läuft mit
  * - Aktionen als Symbole: Start/Pause und Feierabend (Stop)
  */
@@ -128,7 +129,13 @@ object TrackingNotification {
         )
 
         return NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(if (isRunning) R.drawable.ic_stat_running else R.drawable.ic_stat_paused)
+            .setSmallIcon(
+                when {
+                    !isRunning -> R.drawable.ic_stat_paused
+                    store.animatedIcon() -> R.drawable.ic_stat_running_anim
+                    else -> R.drawable.ic_stat_running
+                }
+            )
             .setColor(ContextCompat.getColor(context, R.color.notification_accent))
             .setSubText(if (isRunning) "Arbeitszeit läuft" else "Pausiert")
             .setStyle(NotificationCompat.DecoratedCustomViewStyle())

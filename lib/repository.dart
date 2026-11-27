@@ -57,6 +57,11 @@ class Repository implements SyncStore {
   /// Sync im Hintergrund (nur dieses Gerät, Android): `off` = aus, fehlt = an.
   static const _kBackgroundSync = 'backgroundSync';
 
+  /// Drehendes Symbol in der Statusleiste bei laufender Zeit (nur dieses
+  /// Gerät, Android): `on` = an, fehlt = aus. Wird von der nativen
+  /// Benachrichtigung direkt gelesen (TrackingStore.kt).
+  static const _kAnimatedStatusIcon = 'animatedStatusIcon';
+
   /// Sync-Zustand (Code, Server, Snapshot), siehe lib/sync/.
   static const _kSync = 'sync';
 
@@ -259,6 +264,13 @@ class Repository implements SyncStore {
   Future<void> saveBackgroundSync(bool enabled) => enabled
       ? _prefs.remove(_kBackgroundSync)
       : _prefs.setString(_kBackgroundSync, 'off');
+
+  Future<bool> loadAnimatedStatusIcon() async =>
+      await _prefs.getString(_kAnimatedStatusIcon) == 'on';
+
+  Future<void> saveAnimatedStatusIcon(bool enabled) => enabled
+      ? _prefs.setString(_kAnimatedStatusIcon, 'on')
+      : _prefs.remove(_kAnimatedStatusIcon);
 
   /// Nach einem Start soll die Benachrichtigung wieder erscheinen.
   Future<void> clearStopped() => _prefs.remove(_kStoppedDay);
