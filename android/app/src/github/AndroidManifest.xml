@@ -1,0 +1,19 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Nur in der GitHub-Variante (APK): Updates ohne Play Store. Die
+         heruntergeladene APK wird dem Paketinstaller übergeben (AppUpdate.kt);
+         das System fragt jedes Mal nach. Die Play-Variante (src/play) hat
+         weder die Berechtigung noch den Provider – dort aktualisiert der Store. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <application>
+        <!-- Gibt dem Paketinstaller die heruntergeladene APK zum Lesen frei -->
+        <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths"/>
+        </provider>
+    </application>
+</manifest>

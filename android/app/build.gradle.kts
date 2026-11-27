@@ -51,6 +51,23 @@ android {
         }
     }
 
+    // Zwei Varianten derselben App:
+    //  * github – APK für die GitHub-Releases, aktualisiert sich selbst
+    //    (src/github: REQUEST_INSTALL_PACKAGES, AppUpdate.kt)
+    //  * play   – App Bundle für den Play Store unter eigener Anwendungs-ID,
+    //    ohne Selbst-Update (verstößt dort gegen die Richtlinien)
+    // Bauen: flutter build apk --flavor github / flutter build appbundle --flavor play
+    flavorDimensions += "store"
+    productFlavors {
+        create("github") {
+            dimension = "store"
+        }
+        create("play") {
+            dimension = "store"
+            applicationId = "de.antatime"
+        }
+    }
+
     buildTypes {
         release {
             signingConfig = if (keystorePropertiesFile.exists()) {

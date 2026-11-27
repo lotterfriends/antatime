@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show appFlavor;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -70,7 +71,12 @@ class UpdateService extends ChangeNotifier {
   /// Beendet die App geordnet (Desktop: Infobereich abbauen), siehe main.dart.
   Future<void> Function()? quit;
 
-  bool get supported => _listUrl != null && _platform.kind != null;
+  /// Die Play-Store-Variante (`--flavor play`) aktualisiert der Store; dort
+  /// darf die App nichts selbst laden und installieren.
+  static const fromStore = appFlavor == 'play';
+
+  bool get supported =>
+      !fromStore && _listUrl != null && _platform.kind != null;
 
   UpdateKind? get kind => _platform.kind;
   /// Wo gesucht wird, für die Anzeige.

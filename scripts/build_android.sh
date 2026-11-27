@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Baut die Android-APK -> dist/antatime-<version>.apk
+# Baut beide Android-Varianten (Flavors, siehe android/app/build.gradle.kts):
+#   github -> dist/antatime-<version>.apk       APK für die GitHub-Releases,
+#                                               aktualisiert sich selbst
+#   play   -> dist/antatime-<version>-play.aab  App Bundle für den Play Store
+#                                               (de.antatime, ohne Selbst-Update)
+# Nur eine davon: ANDROID_VARIANTS=github bzw. ANDROID_VARIANTS=play.
 #
 # Optionale Release-Signatur über Umgebungsvariablen (sonst Debug-Key):
 #   ANDROID_KEYSTORE_BASE64   Keystore (.jks) base64-kodiert (wie in CI)
@@ -74,9 +79,28 @@ if [[ " $* " != *" --build-number"* ]]; then
   BUILD_ARGS+=(--build-number="$BUILD_NUMBER")
 fi
 
-flutter_prepare
-"$FLUTTER" build apk --release ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "$@"
+VARIANTS="${ANDROID_VARIANTS:-github play}"
+for v in $VARIANTS; do
+  if [[ "$v" != github && "$v" != play ]]; then
+    echo "ANDROID_VARIANTS: unbekannte Variante „$v“ (github, play)." >&2
+    exit 1
+  fi
+done
+if [[ " $VARIANTS " == *" play "* && ! -f "$KEY_PROPS" ]]; then
+  echo "Hinweis: Ohne Release-Signatur nimmt die Play Console das App Bundle nicht an." >&2
+fi
 
-OUT="$DIST_DIR/antatime-$APP_VERSION.apk"
-cp build/app/outputs/flutter-apk/app-release.apk "$OUT"
-echo "APK: $OUT"
+flutter_prepare
+for v in $VARIANTS; do
+  if [[ "$v" == github ]]; then
+    "$FLUTTER" build apk --release --flavor github ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "$@"
+    OUT="$DIST_DIR/antatime-$APP_VERSION.apk"
+    cp build/app/outputs/flutter-apk/app-github-release.apk "$OUT"
+    echo "APK (GitHub): $OUT"
+  else
+    "$FLUTTER" build appbundle --release --flavor play ${DART_DEFINES[@]+"${DART_DEFINES[@]}"} ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} "$@"
+    OUT="$DIST_DIR/antatime-$APP_VERSION-play.aab"
+    cp build/app/outputs/bundle/playRelease/app-play-release.aab "$OUT"
+    echo "App Bundle (Play Store): $OUT"
+  fi
+done

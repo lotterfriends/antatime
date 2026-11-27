@@ -1,0 +1,41 @@
+AnTaTime ist eine schlanke Arbeitszeiterfassung mit Stundenkonto. Ein Tipp auf Start, ein Tipp auf Pause – den Rest rechnet die App: Tagessaldo, Monatssaldo und dein Stundenkonto, inklusive Urlaub, Krankheit und Feiertagen.
+
+Kein Konto, keine Werbung, kein Tracking. Deine Daten bleiben auf deinem Gerät.
+
+ZEIT ERFASSEN
+• Start, Pause und Feierabend in der App oder direkt in der Benachrichtigung
+• Die Zeit zwischen zwei Arbeitszeiten zählt automatisch als Pause
+• Arbeitszeiten nacherfassen, bearbeiten und löschen – auch über Mitternacht, mit Prüfung auf Überschneidungen
+• Notizen zu einzelnen Arbeitszeiten
+
+STUNDENKONTO
+• Wochen- und Tagesstunden sowie Arbeitstage frei einstellbar
+• Stundenkonto mit Startwert und Erfassungsbeginn
+• Verlauf pro Monat mit Tages- und Monatssaldo
+• Zuschläge, z. B. für späte Arbeitszeiten
+
+ABWESENHEITEN UND FEIERTAGE
+• Urlaub, Krankheit und andere Abwesenheiten für einzelne Tage oder Zeiträume
+• Jahresansicht aller Abwesenheiten mit Zählung der Arbeitstage je Art
+• Gesetzliche Feiertage aller 16 Bundesländer, automatisch berechnet
+• Heiligabend und Silvester als halbe oder ganze freie Tage
+
+ERINNERUNGEN
+• Erinnerung, wenn die Zeiterfassung an einem Arbeitstag noch nicht gestartet wurde
+• Hinweis, sobald die Tagesstunden erreicht sind – mit „Feierabend“-Aktion
+
+DEINE DATEN GEHÖREN DIR
+• Alles wird lokal auf dem Gerät gespeichert, die App funktioniert vollständig offline
+• Export und Import aller Daten als Datei
+• CSV-Export für einen frei wählbaren Zeitraum, direkt in Excel oder LibreOffice nutzbar
+
+SYNCHRONISATION (OPTIONAL)
+• Gleiche deine Zeiten zwischen Smartphone, Browser und Desktop ab
+• Ende-zu-Ende-verschlüsselt: Der Server speichert nur verschlüsselte Daten und kann sie nicht lesen
+• Kein Benutzerkonto nötig – ein Sync-Code verbindet deine Geräte
+• Änderungen erscheinen sofort auf allen Geräten; Start und Pause auf einem anderen Gerät aktualisieren die Benachrichtigung auf dem Smartphone
+• Der Quellcode des Servers ist öffentlich, du kannst ihn auch selbst betreiben
+
+AnTaTime gibt es auch für den Browser sowie für Linux, Windows und macOS.
+
+Hinweis: Die Feiertage und die Oberfläche sind auf Deutschland ausgelegt; die App ist auf Deutsch.

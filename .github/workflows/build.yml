@@ -41,7 +41,7 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
-      - name: Build APK
+      - name: Build APK (GitHub) und App Bundle (Play Store)
         run: ./scripts/build_android.sh
         env:
           # Optional: Repository-Secrets für eine echte Release-Signatur.
@@ -53,6 +53,11 @@ jobs:
         with:
           name: android-apk
           path: dist/*.apk
+      # Für den Upload in die Play Console; hängt nicht am GitHub-Release.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-play-aab
+          path: dist/*.aab
 
   web:
     needs: test
@@ -210,6 +215,8 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      # Das App Bundle gehört in den Play Store, nicht ins Release.
+      - run: rm -f dist/*.aab
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

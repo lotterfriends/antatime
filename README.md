@@ -49,7 +49,7 @@ Voraussetzung: [Flutter](https://docs.flutter.dev/get-started/install) (getestet
 
 ```bash
 flutter pub get
-flutter run            # Gerät/Emulator wählen
+flutter run            # Gerät/Emulator wählen (Android: flutter run --flavor github)
 flutter run -d chrome  # Browser
 flutter run -d linux   # Desktop (bzw. -d windows / -d macos)
 ```
@@ -86,7 +86,7 @@ Die Skripte in `scripts/` werden sowohl lokal als auch von GitHub Actions verwen
 | Skript | Ergebnis | Voraussetzung |
 | --- | --- | --- |
 | `scripts/test.sh` | Analyse + Tests | Flutter |
-| `scripts/build_android.sh` | `dist/antatime-<version>.apk` | Flutter, Android SDK, JDK 17 |
+| `scripts/build_android.sh` | `dist/antatime-<version>.apk` (GitHub) und `dist/antatime-<version>-play.aab` (Play Store) | Flutter, Android SDK, JDK 17 |
 | `scripts/build_web.sh` | `build/web`, `dist/antatime-web-<version>.zip` | Flutter |
 | `scripts/build_ios.sh` | `dist/antatime-<version>-unsigned.ipa` | macOS, Xcode |
 | `scripts/build_linux.sh` | `dist/antatime-<version>-linux-x64.tar.gz`, `dist/antatime_<version>_amd64.deb`, `dist/AnTaTime-<version>-x86_64.AppImage` | Linux, Pakete s. o., `dpkg-deb`; appimagetool wird bei Bedarf geladen |
@@ -104,6 +104,15 @@ Optionen über Umgebungsvariablen:
 - `SKIP_DEB=1`, `SKIP_APPIMAGE=1` – einzelne Linux-Pakete auslassen
 - `IOS_SIGN=1` – signiertes IPA über `flutter build ipa` (Apple-Developer-Account in Xcode nötig)
 - Android-Release-Signatur: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` (oder eigene `android/key.properties`). Ohne diese wird mit dem Debug-Key signiert.
+
+**Zwei Android-Varianten** (Flavors in `android/app/build.gradle.kts`), `scripts/build_android.sh` baut beide:
+
+| Variante | Anwendungs-ID | Ausgabe | Updates |
+| --- | --- | --- | --- |
+| `github` | `com.lotterfriends.antatime` | APK für die GitHub-Releases | lädt und installiert die App selbst (`REQUEST_INSTALL_PACKAGES`, `android/app/src/github`) |
+| `play` | `de.antatime` | App Bundle (`.aab`) für die Play Console | nur über den Play Store; ohne die Berechtigung und ohne den Bereich „Updates“ in den Einstellungen |
+
+Nur eine Variante bauen: `ANDROID_VARIANTS=play scripts/build_android.sh`. Beide werden mit demselben Release-Key signiert; Texte, Grafiken und Erklärungen für den Store-Eintrag liegen unter `store/play/`. Wegen der Flavors braucht `flutter run`/`flutter build apk` unter Android immer `--flavor github` oder `--flavor play`.
 
 Lokal signierte APKs bauen: Vorlage kopieren und ausfüllen – `signing.env` ist in `.gitignore` und wird nicht eingecheckt. `scripts/build_android.sh` lädt die Datei automatisch. Statt des base64-kodierten Keystores genügt dort der Pfad (`ANDROID_KEYSTORE_FILE`). Die Werte sind dieselben wie die Repository-Secrets; GitHub gibt Secrets aber nicht wieder heraus, also Keystore und Passwörter aus der eigenen Ablage nehmen. Passwörter mit Sonderzeichen in einfache Anführungszeichen setzen.
 
