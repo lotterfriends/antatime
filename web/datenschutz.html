@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Datenschutzerklärung der App AnTaTime – Arbeitszeiterfassung">
+  <title>Datenschutzerklärung – AnTaTime</title>
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <style>
+    :root { --bg: #f4fbf9; --fg: #17201e; --muted: #4c5c58; --accent: #00796b; --line: #cfe3de; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #101514; --fg: #e3eeeb; --muted: #a3b5b0; --accent: #4db6ac; --line: #2a3835; }
+    }
+    body { margin: 0; background: var(--bg); color: var(--fg);
+      font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem 4rem; }
+    h1 { font-size: 1.8rem; line-height: 1.25; margin: 0 0 .25rem; }
+    h2 { font-size: 1.2rem; margin: 2.2rem 0 .5rem; color: var(--accent); }
+    h3 { font-size: 1rem; margin: 1.4rem 0 .3rem; }
+    p, ul { margin: .5rem 0; }
+    ul { padding-left: 1.3rem; }
+    a { color: var(--accent); }
+    .muted { color: var(--muted); }
+    .box { border: 1px solid var(--line); border-radius: 12px; padding: .8rem 1rem; margin: 1rem 0; }
+    address { font-style: normal; }
+    hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+  </style>
+</head>
+<body>
+<main>
+  <p><a href="./">← AnTaTime</a></p>
+  <h1>Datenschutzerklärung</h1>
+  <p class="muted">für die App „AnTaTime – Arbeitszeiterfassung“ (Android, iOS, Desktop, Web) und den
+    Synchronisationsdienst unter antatime.de · Stand: 27. November 2026 ·
+    <a href="#english">English summary</a></p>
+
+  <div class="box">
+    <strong>Kurz gesagt:</strong> AnTaTime speichert deine Arbeitszeiten auf deinem Gerät. Es gibt kein
+    Benutzerkonto, keine Werbung, keine Analyse- oder Tracking-Dienste. Nur wenn du die optionale
+    Synchronisation einschaltest, werden deine Daten – Ende-zu-Ende-verschlüsselt – an einen Server
+    übertragen, der sie nicht lesen kann.
+  </div>
+
+  <h2>1. Verantwortlicher</h2>
+  <address>
+    André Tarnowsky<br>
+    Brückstr. 7<br>
+    29690 Schwarmstedt, Deutschland<br>
+    E-Mail: antatime.service@gmail.com
+  </address>
+
+  <h2>2. Nutzung der App ohne Synchronisation</h2>
+  <p>Alle Daten, die du in AnTaTime eingibst – Arbeitszeiten, Pausen, Notizen, Abwesenheiten (z. B. Urlaub
+    oder Krankheit) und Einstellungen –, werden ausschließlich lokal auf deinem Gerät gespeichert (in der
+    Web-App: im Speicher deines Browsers). Sie werden nicht an uns oder an Dritte übertragen. Wir haben
+    keinen Zugriff darauf.</p>
+  <p>Die App enthält keine Werbung, keine Analyse-, Statistik- oder Absturzberichts-Dienste und keine
+    Software von Werbenetzwerken. Es wird kein Benutzerkonto angelegt.</p>
+  <p>Exportierst du Daten (Sicherung oder CSV), entsteht eine Datei auf deinem Gerät, über deren Verbleib
+    du selbst entscheidest.</p>
+
+  <h3>Berechtigungen (Android)</h3>
+  <ul>
+    <li><strong>Benachrichtigungen:</strong> für die Anzeige der laufenden Zeiterfassung mit Start/Pause
+      sowie für Erinnerungen. Die Benachrichtigungen entstehen auf dem Gerät; es wird kein Push-Dienst
+      verwendet.</li>
+    <li><strong>Internetzugriff:</strong> nur für die optionale Synchronisation (Abschnitt 3) und – in
+      der außerhalb des Play Stores verteilten Version – für die Suche nach Updates (Abschnitt 5).</li>
+    <li><strong>Dienst im Vordergrund / Start nach Neustart:</strong> damit die Benachrichtigung bei
+      eingeschalteter Synchronisation aktuell bleibt und Erinnerungen nach einem Neustart des Geräts
+      wieder eingeplant werden.</li>
+  </ul>
+
+  <h2>3. Optionale Synchronisation</h2>
+  <p>Die Synchronisation ist standardmäßig ausgeschaltet. Schaltest du sie ein
+    (Einstellungen → Synchronisation), gleicht die App deine Daten über einen AnTaTime-Server zwischen
+    deinen Geräten ab. Du kannst dafür unseren Server unter antatime.de oder einen eigenen bzw. fremden
+    Server eintragen; für andere Server ist deren Betreiber verantwortlich.</p>
+
+  <h3>Was der Server speichert</h3>
+  <ul>
+    <li><strong>Verschlüsselte Datensätze:</strong> Arbeitszeiten, Abwesenheiten und Einstellungen werden
+      auf deinem Gerät mit einem Schlüssel verschlüsselt, der aus deinem Sync-Code abgeleitet wird. Der
+      Sync-Code verlässt deine Geräte nicht. Der Server erhält ausschließlich verschlüsselte Daten und
+      kann deren Inhalt nicht lesen – wir auch nicht.</li>
+    <li><strong>Technische Angaben:</strong> eine aus dem Sync-Code abgeleitete, zufällig wirkende Kennung
+      deines Datenbestands, Anzahl und Größe der verschlüsselten Datensätze sowie die Zeitpunkte der
+      Anlage, der letzten Änderung und der letzten Nutzung.</li>
+  </ul>
+  <p>Name, E-Mail-Adresse oder andere Angaben zu deiner Person werden nicht erhoben. Wir können einen
+    Datenbestand keiner Person zuordnen.</p>
+
+  <h3>IP-Adresse</h3>
+  <p>Beim Verbindungsaufbau wird technisch bedingt deine IP-Adresse verarbeitet. Der Sync-Server nutzt sie
+    kurzzeitig im Arbeitsspeicher, um Missbrauch und Überlastung zu begrenzen (Begrenzung der Verbindungen
+    und der Datenmenge je Anschluss); er speichert sie nicht dauerhaft. Zu den Protokollen des
+    Webservers siehe Abschnitt 4.</p>
+
+  <h3>Speicherdauer und Löschung</h3>
+  <ul>
+    <li>Du kannst deine Daten jederzeit selbst vom Server löschen: Einstellungen → Synchronisation →
+      „Synchronisation beenden“ → „auch auf dem Server löschen“.</li>
+    <li>Datenbestände, die 365 Tage lang von keinem Gerät genutzt wurden, werden automatisch gelöscht.</li>
+  </ul>
+  <p>Da wir die verschlüsselten Daten keiner Person zuordnen können, ist eine Löschung durch uns nur
+    möglich, wenn du uns die Kennung deines Datenbestands nachweisen kannst; am einfachsten und sichersten
+    löschst du die Daten selbst in der App.</p>
+
+  <h3>Rechtsgrundlage</h3>
+  <p>Art. 6 Abs. 1 Buchst. b DSGVO (Bereitstellung der von dir gewünschten Synchronisation) sowie
+    Art. 6 Abs. 1 Buchst. f DSGVO (Schutz des Dienstes vor Missbrauch und Überlastung).</p>
+
+  <h2>4. Aufruf von antatime.de (Web-App, diese Seite, Synchronisation)</h2>
+  <p>Beim Aufruf von antatime.de verarbeitet der Webserver unseres Hosting-Anbieters die technisch
+    notwendigen Verbindungsdaten: IP-Adresse, Datum und Uhrzeit, aufgerufene Adresse, übertragene
+    Datenmenge, Statuscode sowie die vom Browser bzw. der App übermittelte Kennung (User-Agent). Diese
+    Daten werden in Protokolldateien des Hosting-Anbieters gespeichert, um den Betrieb und die Sicherheit
+    des Servers zu gewährleisten, und nach 14 Tagen gelöscht
+    (Art. 6 Abs. 1 Buchst. f DSGVO).</p>
+  <p>Hosting-Anbieter ist Netcup GmbH, Emmy-Noether-Straße 10, 76131 Karlsruhe; der Server steht in  Deutschland.
+    Mit dem Anbieter besteht ein Vertrag zur Auftragsverarbeitung (Art. 28 DSGVO).</p>
+  <p>antatime.de setzt keine Cookies zu Analyse- oder Werbezwecken und bindet keine Inhalte von
+    Drittanbietern ein. Die Web-App speichert deine Daten im lokalen Speicher deines Browsers; das ist für
+    ihre Funktion erforderlich.</p>
+
+  <h2>5. Updates</h2>
+  <ul>
+    <li><strong>Version aus dem Google Play Store:</strong> Updates liefert ausschließlich Google Play.
+      Die App selbst stellt dafür keine Verbindungen her. Für den Play Store gilt die
+      Datenschutzerklärung von Google.</li>
+    <li><strong>Direkt verteilte Versionen (Android-APK, Linux, Windows, macOS):</strong> Diese fragen
+      gelegentlich bei GitHub (GitHub, Inc., USA) nach, ob eine neuere Version vorliegt, und laden sie auf
+      deinen Wunsch von dort herunter. Dabei erfährt GitHub deine IP-Adresse; Inhalte der App werden nicht
+      übertragen. Die automatische Suche lässt sich in den Einstellungen unter „Updates“ abschalten
+      (Art. 6 Abs. 1 Buchst. f DSGVO: Bereitstellung von Sicherheits- und Fehlerkorrekturen).</li>
+  </ul>
+
+  <h2>6. Weitergabe von Daten</h2>
+  <p>Eine Weitergabe an Dritte findet nicht statt – mit Ausnahme der in den Abschnitten 4 und 5 genannten
+    technischen Dienstleister. Es erfolgt kein Verkauf von Daten und keine Nutzung zu Werbezwecken.</p>
+
+  <h2>7. Deine Rechte</h2>
+  <p>Du hast nach der DSGVO das Recht auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17),
+    Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) sowie Widerspruch gegen
+    Verarbeitungen auf Grundlage berechtigter Interessen (Art. 21). Wende dich dazu an die oben genannte
+    Adresse. Außerdem kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren (Art. 77 DSGVO),
+    insbesondere bei der für deinen Wohnort zuständigen.</p>
+  <p>Bitte beachte: Lokal auf deinem Gerät gespeicherte Daten und die verschlüsselten Sync-Daten können
+    wir dir nicht zuordnen. Auskunft, Export und Löschung nimmst du deshalb direkt in der App vor
+    (Einstellungen → Daten bzw. Einstellungen → Synchronisation).</p>
+
+  <h2>8. Änderungen</h2>
+  <p>Wir passen diese Erklärung an, wenn sich die App oder die Rechtslage ändert. Es gilt die jeweils hier
+    veröffentlichte Fassung.</p>
+
+  <hr>
+
+  <h2 id="english">English summary</h2>
+  <p><strong>AnTaTime</strong> is a working-time tracker. Controller: see section 1 above.</p>
+  <ul>
+    <li><strong>No account, no ads, no analytics, no tracking.</strong> Everything you enter (working
+      times, breaks, notes, absences, settings) is stored only on your device.</li>
+    <li><strong>Optional sync</strong> (off by default): if you enable it, your data is end-to-end
+      encrypted on your device with a key derived from your sync code and stored on the sync server as
+      ciphertext only. The server operator cannot read it. The server additionally keeps a pseudonymous
+      identifier of your data set, record counts/sizes and timestamps of creation, last change and last
+      use. No name or e-mail address is collected.</li>
+    <li><strong>IP address:</strong> processed transiently for rate limiting and stored in standard web
+      server logs of the hosting provider for a limited time.</li>
+    <li><strong>Deletion:</strong> you can delete your data from the server at any time in the app
+      (Einstellungen → Synchronisation → „Synchronisation beenden“ → delete on server). Data sets unused
+      for 365 days are deleted automatically. Local data is removed by uninstalling the app.</li>
+    <li><strong>Updates:</strong> the Google Play version is updated by Google Play only. Directly
+      distributed builds check GitHub for new versions, which reveals your IP address to GitHub.</li>
+    <li><strong>No data is sold or shared</strong> with third parties, apart from the technical
+      providers named above.</li>
+    <li>You have the rights of access, rectification, erasure, restriction, portability and objection
+      under the GDPR, and the right to lodge a complaint with a supervisory authority.</li>
+  </ul>
+</main>
+</body>
+</html>
